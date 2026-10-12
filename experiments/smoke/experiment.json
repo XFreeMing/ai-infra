@@ -1,0 +1,6 @@
+{
+  "id": "smoke",
+  "command": ["{python}", "experiments/smoke/check.py"],
+  "timeout_seconds": 30,
+  "required_sources": []
+}

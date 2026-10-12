@@ -1,0 +1,9 @@
+[submodule "sources/vllm"]
+	path = sources/vllm
+	url = https://github.com/vllm-project/vllm.git
+[submodule "sources/sglang"]
+	path = sources/sglang
+	url = https://github.com/sgl-project/sglang.git
+[submodule "sources/llama.cpp"]
+	path = sources/llama.cpp
+	url = https://github.com/ggml-org/llama.cpp.git

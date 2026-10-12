@@ -1,0 +1,21 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Local settings and credentials
+.env
+.env.*
+!.env.example
+.DS_Store
+
+# Machine-local models, caches, and large experiment outputs
+/artifacts/
+/models/
+/.cache/
