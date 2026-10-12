@@ -1,0 +1,344 @@
+{
+  "schema_version": 1,
+  "observed_date": "2026-10-13",
+  "status": "static_header_audit_only_not_runtime_validated",
+  "engines": {
+    "ds4": "fc80bd695da76ee14bcb86820bf900a5cdfda806",
+    "llama.cpp": "972b5fcc19670e597f8de9bf5cacfb85752a5fff"
+  },
+  "artifact": {
+    "repo": "antirez/deepseek-v4-gguf",
+    "revision": "f71f23d552d664e523b422157b2befbf74040380",
+    "filename": "DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf",
+    "size_bytes": 86720111488,
+    "sha256_reported_by_hf_lfs": "ca22ae2f838e14077c22bc1c1417b71b45b5e5a3687bd96c2ac6e17fdb6261c0",
+    "whole_file_sha256_locally_verified": false,
+    "resolve_url": "https://huggingface.co/antirez/deepseek-v4-gguf/resolve/f71f23d552d664e523b422157b2befbf74040380/DeepSeek-V4-Flash-IQ2XXS-w2Q2K-AProjQ8-SExpQ8-OutQ8-chat-v2-imatrix-0731.gguf"
+  },
+  "observation": {
+    "api_url": "https://huggingface.co/api/models/antirez/deepseek-v4-gguf?blobs=true",
+    "api_response_sha256": "d3168eb5b89b651629edbdf9cb30e3b8cbbeeaf79eaf716968e479bc0d5b7c11",
+    "http_range": "bytes=0-8388607",
+    "bytes_received": 8388608,
+    "range_sha256": "d0259ff9aa0919e82c75e7ecbebeaa3203e532287eb49cfb9f9c971a57d1f801",
+    "method": "Bounded HTTP 206 range; standard-library little-endian GGUF v3 metadata/tensor-directory parsing; no tensor evaluation. Range includes bytes after the directory; no full model downloaded."
+  },
+  "header": {
+    "gguf_version": 3,
+    "metadata_count": 62,
+    "tensor_count": 1328,
+    "metadata_end": 5248096,
+    "tensor_directory_end": 5333793,
+    "tensor_data_start": 5333824,
+    "header_sha256": "32a1225c496e756c12426d5d36679dbbc5486ecc3f1d2f0394024d7f44e0bd06",
+    "special_token_ids": {
+      "<｜begin▁of▁sentence｜>": 0,
+      "<｜end▁of▁sentence｜>": 1,
+      "<｜User｜>": 128803,
+      "<｜Assistant｜>": 128804,
+      "<think>": 128821,
+      "</think>": 128822,
+      "｜DSML｜": 128825
+    },
+    "tensor_type_counts": {
+      "26": 3,
+      "16": 86,
+      "10": 43,
+      "1": 359,
+      "0": 492,
+      "8": 345
+    }
+  },
+  "chat_template": {
+    "present": true,
+    "utf8_size": 5016,
+    "utf8_sha256": "872492071c22c8d2025238120309ffbddddb666b49f4433f55c19b69bf51af27",
+    "executed": false,
+    "single_user_nothink_render_by_source_reading": "<｜begin▁of▁sentence｜><｜User｜>{prompt}<｜Assistant｜></think>"
+  },
+  "metadata": {
+    "general.architecture": "deepseek4",
+    "general.type": "model",
+    "general.sampling.top_p": 1.0,
+    "general.sampling.temp": 1.0,
+    "general.name": "DeepSeek V4 Flash",
+    "general.size_label": "256x8.4B",
+    "general.license": "mit",
+    "deepseek4.block_count": 43,
+    "deepseek4.context_length": 1048576,
+    "deepseek4.embedding_length": 4096,
+    "deepseek4.attention.head_count": 64,
+    "deepseek4.attention.head_count_kv": 1,
+    "deepseek4.rope.scaling.type": "yarn",
+    "deepseek4.rope.scaling.factor": 16.0,
+    "deepseek4.rope.scaling.original_context_length": 65536,
+    "deepseek4.rope.scaling.yarn_beta_fast": 32.0,
+    "deepseek4.rope.scaling.yarn_beta_slow": 1.0,
+    "deepseek4.rope.freq_base": 10000.0,
+    "deepseek4.attention.layer_norm_rms_epsilon": 9.999999974752427e-07,
+    "deepseek4.expert_used_count": 6,
+    "deepseek4.expert_gating_func": 4,
+    "deepseek4.attention.key_length": 512,
+    "deepseek4.attention.value_length": 512,
+    "general.file_type": 19,
+    "deepseek4.vocab_size": 129280,
+    "deepseek4.rope.dimension_count": 64,
+    "deepseek4.attention.q_lora_rank": 1024,
+    "deepseek4.attention.output_lora_rank": 1024,
+    "deepseek4.attention.output_group_count": 8,
+    "deepseek4.attention.compress_ratios": {
+      "count": 44,
+      "encoded_value_sha256": "46c421d18eb1e6f2808c16023aac97436f8bb834dd3ef142348d7401d14174a2",
+      "values": [
+        0,
+        0,
+        4,
+        128,
+        4,
+        128,
+        4,
+        128,
+        4,
+        128,
+        4,
+        128,
+        4,
+        128,
+        4,
+        128,
+        4,
+        128,
+        4,
+        128,
+        4,
+        128,
+        4,
+        128,
+        4,
+        128,
+        4,
+        128,
+        4,
+        128,
+        4,
+        128,
+        4,
+        128,
+        4,
+        128,
+        4,
+        128,
+        4,
+        128,
+        4,
+        128,
+        4,
+        0
+      ]
+    },
+    "deepseek4.attention.compress_rope_freq_base": 160000.0,
+    "deepseek4.expert_feed_forward_length": 2048,
+    "deepseek4.expert_count": 256,
+    "deepseek4.expert_shared_count": 1,
+    "deepseek4.expert_weights_scale": 1.5,
+    "deepseek4.hash_layer_count": 3,
+    "deepseek4.expert_weights_norm": true,
+    "deepseek4.swiglu_clamp_exp": {
+      "count": 43,
+      "encoded_value_sha256": "632a232a4989f5f9947cb21c199ac1279ddcbc9c1133d55bac6822c723a395fc",
+      "values": [
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0,
+        10.0
+      ]
+    },
+    "deepseek4.attention.sliding_window": 128,
+    "deepseek4.attention.indexer.head_count": 64,
+    "deepseek4.attention.indexer.key_length": 128,
+    "deepseek4.attention.indexer.top_k": 512,
+    "deepseek4.nextn_predict_layers": 1,
+    "deepseek4.hyper_connection.count": 4,
+    "deepseek4.hyper_connection.sinkhorn_iterations": 20,
+    "deepseek4.hyper_connection.epsilon": 9.999999974752427e-07,
+    "general.quantization_version": 2,
+    "tokenizer.ggml.model": "gpt2",
+    "tokenizer.ggml.pre": "joyai-llm",
+    "tokenizer.ggml.tokens": {
+      "count": 129280,
+      "encoded_value_sha256": "a2b72ea55e539bfd272e6ea3725104342f03f3a55196bb59878ec3c5d4eeca33"
+    },
+    "tokenizer.ggml.token_type": {
+      "count": 129280,
+      "encoded_value_sha256": "31d58c040e8b88f5143fc2b231240f5c71728c8af46fd956f3f68e30c34a40e3"
+    },
+    "tokenizer.ggml.merges": {
+      "count": 127741,
+      "encoded_value_sha256": "3d8dedce2c0fdd0bfd3a23b71d0b0c53e7b11d4626363bb105c71bf7000911a9"
+    },
+    "tokenizer.ggml.bos_token_id": 0,
+    "tokenizer.ggml.eos_token_id": 1,
+    "tokenizer.ggml.padding_token_id": 1,
+    "tokenizer.ggml.add_bos_token": false,
+    "tokenizer.ggml.add_eos_token": false,
+    "quantize.imatrix.file": "gguf/DeepSeek-V4-Flash-0731-chat-v2-routed-moe-ds4.dat",
+    "quantize.imatrix.entries_count": 129,
+    "quantize.imatrix.dataset": "gguf-tools/imatrix/dataset/rendered_prompts.txt",
+    "quantize.imatrix.chunks_count": 202100
+  },
+  "static_tensor_check": {
+    "method": "Independent transcription of llama.cpp src/models/deepseek4.cpp load_arch_tensors with fixed Flash dimensions; all 1328 names and serialized shapes compared. attn_output_a uses the allowed 2D-to-3D view reshape. This is not execution of the loader.",
+    "matched": 1328,
+    "missing": 0,
+    "extra": 0,
+    "dimension_mismatches": 0,
+    "offset_alignment_non_overlap_and_file_end_verified": true,
+    "weights_integrity_verified": false,
+    "main_layers": 43,
+    "mtp_tensors_present": false,
+    "nextn_metadata": 1,
+    "llama_loader_clears_nextn_if_probe_missing": true
+  },
+  "tensor_type_names": {
+    "0": "F32",
+    "1": "F16",
+    "8": "Q8_0",
+    "10": "Q2_K",
+    "16": "IQ2_XXS",
+    "26": "I32"
+  },
+  "representative_tensors": [
+    {
+      "name": "blk.0.ffn_gate_tid2eid.weight",
+      "dimensions": [
+        6,
+        129280
+      ],
+      "type_id": 26,
+      "offset": 0
+    },
+    {
+      "name": "blk.0.ffn_gate_exps.weight",
+      "dimensions": [
+        4096,
+        2048,
+        256
+      ],
+      "type_id": 16,
+      "offset": 9308160
+    },
+    {
+      "name": "blk.0.ffn_down_exps.weight",
+      "dimensions": [
+        2048,
+        4096,
+        256
+      ],
+      "type_id": 10,
+      "offset": 562956288
+    },
+    {
+      "name": "blk.0.ffn_up_exps.weight",
+      "dimensions": [
+        4096,
+        2048,
+        256
+      ],
+      "type_id": 16,
+      "offset": 1267599360
+    },
+    {
+      "name": "token_embd.weight",
+      "dimensions": [
+        4096,
+        129280
+      ],
+      "type_id": 1,
+      "offset": 77922699264
+    },
+    {
+      "name": "blk.0.attn_output_a.weight",
+      "dimensions": [
+        4096,
+        8192
+      ],
+      "type_id": 8,
+      "offset": 78983995648
+    },
+    {
+      "name": "blk.2.attn_compressor_kv.weight",
+      "dimensions": [
+        4096,
+        1024
+      ],
+      "type_id": 1,
+      "offset": 79278335232
+    },
+    {
+      "name": "blk.2.indexer.proj.weight",
+      "dimensions": [
+        4096,
+        64
+      ],
+      "type_id": 1,
+      "offset": 79290920704
+    },
+    {
+      "name": "output_hc_fn.weight",
+      "dimensions": [
+        16384,
+        4
+      ],
+      "type_id": 1,
+      "offset": 86152003616
+    },
+    {
+      "name": "output.weight",
+      "dimensions": [
+        4096,
+        129280
+      ],
+      "type_id": 8,
+      "offset": 86152134720
+    }
+  ]
+}

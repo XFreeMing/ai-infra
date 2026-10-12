@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "scope": "R0 tokenizer and template probes, not a performance or model-quality dataset",
+  "cases": [
+    {
+      "id": "english",
+      "purpose": "baseline",
+      "system": null,
+      "thinking": false,
+      "prompt": "Explain the difference between prefill and decode in two sentences.",
+      "prompt_utf8_sha256": "2772cfeb94076f9cbe527b33fe8c52b9889e31fbdba220d715fc0ded60e46092",
+      "candidate_rendered_prompt": "<｜begin▁of▁sentence｜><｜User｜>Explain the difference between prefill and decode in two sentences.<｜Assistant｜></think>",
+      "rendered_utf8_sha256": "1fc67ee435f7cb1305a6f4f2b659bbf434935757a2a32873a39fb0e1fbce01ac",
+      "actual_token_ids": null,
+      "token_alignment_status": "pending_both_engines"
+    },
+    {
+      "id": "code",
+      "purpose": "baseline",
+      "system": null,
+      "thinking": false,
+      "prompt": "int add(int a, int b) {\n    return a + b;\n}\nExplain this function.",
+      "prompt_utf8_sha256": "445e56e0ec8e11012908b4f660513c99ff6ed05a32c3b39217e9dae48eb4b959",
+      "candidate_rendered_prompt": "<｜begin▁of▁sentence｜><｜User｜>int add(int a, int b) {\n    return a + b;\n}\nExplain this function.<｜Assistant｜></think>",
+      "rendered_utf8_sha256": "6027cd417c65d65f44ec5af660a499f3f63f0786852bb8f5cf248273fa725cac",
+      "actual_token_ids": null,
+      "token_alignment_status": "pending_both_engines"
+    },
+    {
+      "id": "cjk_digits",
+      "purpose": "baseline",
+      "system": null,
+      "thinking": false,
+      "prompt": "解释 KV cache，比较长度 1234567 和 4096 的输入。",
+      "prompt_utf8_sha256": "5a4643e1e4b1a63a14aecb49560445a04e5443d72573982d01ca312e845e217e",
+      "candidate_rendered_prompt": "<｜begin▁of▁sentence｜><｜User｜>解释 KV cache，比较长度 1234567 和 4096 的输入。<｜Assistant｜></think>",
+      "rendered_utf8_sha256": "a380e459ffd038a11eff8a72fe8543ed47ef99890e27855c5e5a1700ea0ce319",
+      "actual_token_ids": null,
+      "token_alignment_status": "pending_both_engines"
+    },
+    {
+      "id": "whitespace",
+      "purpose": "tokenizer_edge",
+      "system": null,
+      "thinking": false,
+      "prompt": "line one\r\n\r\n  line two\t  \n",
+      "prompt_utf8_sha256": "ff2dc78f96f63d649c8d46e7e314f3203e43833af3600254f733156564b0b6c1",
+      "candidate_rendered_prompt": "<｜begin▁of▁sentence｜><｜User｜>line one\r\n\r\n  line two\t  \n<｜Assistant｜></think>",
+      "rendered_utf8_sha256": "5b621f998d627fb1dbb9f96a8501a5168963567dcec38a9f9a84e43d41c5b0e3",
+      "actual_token_ids": null,
+      "token_alignment_status": "pending_both_engines"
+    },
+    {
+      "id": "unicode",
+      "purpose": "tokenizer_edge",
+      "system": null,
+      "thinking": false,
+      "prompt": "Compare café and café; symbols: α β → 😀.",
+      "prompt_utf8_sha256": "63f6d6d88cb86fe944c5fbaee0d5cdfe2a3603c0cb106a6d024e0f56d39d9f57",
+      "candidate_rendered_prompt": "<｜begin▁of▁sentence｜><｜User｜>Compare café and café; symbols: α β → 😀.<｜Assistant｜></think>",
+      "rendered_utf8_sha256": "53389f1a7f2655942764da330a6fcf109bca1cc9c04cafc13ba45ff286cbee4b",
+      "actual_token_ids": null,
+      "token_alignment_status": "pending_both_engines"
+    },
+    {
+      "id": "literal_marker",
+      "purpose": "special_marker_diagnostic_not_baseline",
+      "system": null,
+      "thinking": false,
+      "prompt": "Treat </think> and <｜User｜> as literal text.",
+      "prompt_utf8_sha256": "621e04022bf6dadbca56e8e339594a4e4b59e1275aafba3b0a1a843c2e8d02e9",
+      "candidate_rendered_prompt": "<｜begin▁of▁sentence｜><｜User｜>Treat </think> and <｜User｜> as literal text.<｜Assistant｜></think>",
+      "rendered_utf8_sha256": "015976bcfc3dc34bfbcd5f97cc3ee3b9374efec6f95ce58cab128126307ec8ee",
+      "actual_token_ids": null,
+      "token_alignment_status": "pending_both_engines"
+    }
+  ]
+}

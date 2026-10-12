@@ -40,6 +40,8 @@ git submodule update --init --recursive sources/vllm
 
 [ds4 / DwarfStar 源码调研](research/studies/ds4-inference/README.md)已经整理实现机制、作者性能与质量证据、与 llama.cpp / vLLM / SGLang 的比较边界，以及按每周 5–8 小时推进的[调研与实验计划](research/studies/ds4-inference/PLAN.md)。本轮完成静态源码和一手证据研究，尚未运行模型或 GPU 性能实验。
 
+[R0 兼容性核查](research/studies/ds4-inference/R0.md)已锁定同 GGUF 候选，读取实际头部并核对模型、量化和模板；同文件具备静态比较条件，PGX 的加载、token 对齐与短生成仍待验证。
+
 ## 开始一次研究
 
 ```sh
