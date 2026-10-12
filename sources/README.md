@@ -1,6 +1,6 @@
 # 上游源码与一手入口
 
-最后更新：2026-10-12
+最后更新：2026-10-13
 
 所有供阅读和实验使用的第三方源码通过 Git submodule 引用。主仓库保存其提交版本，第三方项目的代码与许可证由各自仓库维护。
 
@@ -9,9 +9,12 @@
 | vLLM | `sources/vllm` | [仓库](https://github.com/vllm-project/vllm)、[文档](https://docs.vllm.ai/) | 发布、调度与缓存相关 PR、性能回退讨论 |
 | SGLang | `sources/sglang` | [仓库](https://github.com/sgl-project/sglang)、[文档](https://docs.sglang.io/) | 缓存、推理执行、设计与测试讨论 |
 | llama.cpp | `sources/llama.cpp` | [仓库](https://github.com/ggml-org/llama.cpp)、[基准工具](https://github.com/ggml-org/llama.cpp/tree/master/tools/llama-bench) | 本地推理、量化、硬件后端与测量方法 |
+| ds4 / DwarfStar | `sources/ds4` | [仓库](https://github.com/antirez/ds4)、[已固定版本的 Spark 指南](https://github.com/antirez/ds4/blob/fc80bd695da76ee14bcb86820bf900a5cdfda806/docs/DGX_SPARK.md) | 少数模型的专用推理、混合低比特量化、投机解码、会话复用与 SSD 专家缓存 |
 | CUDA / NVIDIA 工具 | 按需加入具体开源组件 | [CUDA 文档](https://docs.nvidia.com/cuda/)、[Nsight Compute](https://docs.nvidia.com/nsight-compute/) | 与实验环境对应的发布说明、构建与性能分析文档 |
 
 CUDA 文档入口不代表整个 CUDA Toolkit 的源码可作为一个 submodule 获取。需要阅读具体开源组件时，单独确定其官方仓库与许可证。
+
+首个真实研究专题：[ds4 的实现差异、性能与效果证据、横向对照及计划](../research/studies/ds4-inference/README.md)。ds4 初始固定为 `fc80bd695da76ee14bcb86820bf900a5cdfda806`，本机额外获取了最近 20 个祖先提交用于分析真实变更；未切换源码版本。
 
 ## 初始化与版本约定
 

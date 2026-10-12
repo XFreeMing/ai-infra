@@ -1,6 +1,6 @@
 # AI Infra 研究工作台
 
-最后更新：2026-10-12
+最后更新：2026-10-13
 
 在 Mac 上用 AI 阅读一手资讯、技术作者讨论和固定版本源码，形成可以验证的实验假设；在 PGX GB10 上运行独立版本的实验，再回到 Mac 分析结果。Git 保存研究过程、实验定义和轻量证据，Git submodule 固定上游源码。
 
@@ -34,7 +34,11 @@ uv run --offline python main.py run smoke
 git submodule update --init --recursive sources/vllm
 ```
 
-也可以选择 `sources/sglang`、`sources/llama.cpp`，或省略路径初始化全部。源码版本由主仓库提交固定。
+也可以选择 `sources/sglang`、`sources/llama.cpp`、`sources/ds4`，或省略路径初始化全部。源码版本由主仓库提交固定。
+
+## 当前研究
+
+[ds4 / DwarfStar 源码调研](research/studies/ds4-inference/README.md)已经整理实现机制、作者性能与质量证据、与 llama.cpp / vLLM / SGLang 的比较边界，以及按每周 5–8 小时推进的[调研与实验计划](research/studies/ds4-inference/PLAN.md)。本轮完成静态源码和一手证据研究，尚未运行模型或 GPU 性能实验。
 
 ## 开始一次研究
 
@@ -56,7 +60,7 @@ uv run --offline python main.py new experiment prefix-cache-boundary
 | 路径 | 内容 |
 | --- | --- |
 | [AGENTS.md](AGENTS.md) | AI 阅读、修改和证据记录约定 |
-| [sources/](sources/README.md) | vLLM、SGLang、llama.cpp 的 submodule 与官方入口 |
+| [sources/](sources/README.md) | vLLM、SGLang、llama.cpp、ds4 的 submodule 与官方入口 |
 | [research/](research/README.md) | 研究卡、英文精读、人物档案 |
 | [experiments/](experiments/README.md) | 假设、执行配置、实验和分析脚本 |
 | [reports/](reports/README.md) | 原始小型数据、实验报告、专题成果 |

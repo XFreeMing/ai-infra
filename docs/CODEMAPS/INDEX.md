@@ -1,6 +1,6 @@
 # AI Infra 工作台 Codemap
 
-最后更新：2026-10-12
+最后更新：2026-10-13
 
 入口：[main.py](../../main.py)、[ai_infra/cli.py](../../ai_infra/cli.py)、[README.md](../../README.md)
 
@@ -27,7 +27,7 @@ artifacts/（本机产物）     → 人工审阅与整理 → reports/（轻量
 | [templates/](../../templates/reading.md) | 统一记录结构 | 研究、人物、实验、报告 | 无 |
 | [research/](../../research/README.md) | 研究知识与下一步入口 | 一手来源、源码证据、假设 | 来源与源码永久链接 |
 | [experiments/](../../experiments/README.md) | 可执行实验定义 | README、JSON、实验脚本 | 按实验单独配置环境 |
-| [sources/](../../sources/README.md) | 固定上游源码 | vLLM、SGLang、llama.cpp | Git submodule |
+| [sources/](../../sources/README.md) | 固定上游源码 | vLLM、SGLang、llama.cpp、ds4 | Git submodule |
 | [reports/](../../reports/README.md) | 可公开验证的成果 | 轻量原始数据、报告 | 运行清单与分析脚本 |
 
 ## 数据流

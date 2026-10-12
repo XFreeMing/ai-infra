@@ -7,3 +7,6 @@
 [submodule "sources/llama.cpp"]
 	path = sources/llama.cpp
 	url = https://github.com/ggml-org/llama.cpp.git
+[submodule "sources/ds4"]
+	path = sources/ds4
+	url = https://github.com/antirez/ds4.git
