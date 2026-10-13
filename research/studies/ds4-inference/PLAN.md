@@ -137,6 +137,8 @@ R0–R2 为首月主线。R3–R7 是排好顺序的候选，不承诺首月全�
 
 在 PGX 执行 `uv run init`。默认优先查找 `/data/models` 下已完成的本计划 Flash 0731 Q2，校验 R0_MODEL 的完整身份；初始化固定子模块，在独立目录构建 ds4 `fc80bd6`、`d6b516a` 和 llama.cpp，准备同 revision 的 DSpark support、CUDA 小探针与 scorer。参数与产物说明见[工作台入口](../../../README.md)。`uv run init --check-only` 只盘点并保存准备清单，不通过 R0。
 
+原生框架新增 `uv run init --engines sglang vllm`，独立环境与源码构建计划见 [NATIVE_SERVING.md](NATIVE_SERVING.md)。模型按用户指定使用 ModelScope `nv-community/DeepSeek-V4.1-Flash-NVFP4`，手动下载入口独立于 init。这份 491.1 GiB 的 V4.1 checkpoint 不属于本 P0 同文件对照，也不能装入单 GB10；当前只准备脚本，没有执行框架构建或模型推理。
+
 已理解：`init` 将环境准备固定到本地模型身份、输入字节、源码 SHA、构建命令和实际二进制/库路径。
 
 未解决：准备完成不代表 R0 通过；token ID、模型加载、短生成、质量与 R2 状态正确性仍须实测。

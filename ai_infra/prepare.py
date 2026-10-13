@@ -48,8 +48,11 @@ def positive_int(value: str) -> int:
 
 
 def add_init_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument('--engines', nargs='+', choices=('ds4', 'llama', 'sglang', 'vllm', 'freetoken', 'all'),
+                        default=['ds4', 'llama'], help='默认 ds4/llama P0；可选 sglang、vllm、freetoken 或 all。')
+    parser.add_argument('--dry-run', action='store_true', help='只生成准备计划，不安装、下载或构建。')
     parser.add_argument('--models-dir', type=Path, default=Path('/data/models'))
-    parser.add_argument('--model', type=Path, help='指定同一 R0 artifact 的路径；仍校验冻结的大小/header/SHA256。')
+    parser.add_argument('--model', type=Path, help='P0：同一 R0 GGUF；FreeToken：本地 safetensors 模型目录（不下载）。')
     parser.add_argument('--cuda-home', type=Path, help='CUDA toolkit 根目录；默认探测 CUDA_HOME、PATH 和 /usr/local/cuda。')
     parser.add_argument('--jobs', type=positive_int, default=4)
     parser.add_argument('--build-timeout', type=positive_int, default=1800, help='全部构建共享的墙钟预算，默认 1800 秒。')
@@ -402,6 +405,25 @@ def build_all(root: Path, sources: dict, home: Path, args: argparse.Namespace, r
 
 
 def prepare(root: Path, args: argparse.Namespace) -> tuple[Path, int]:
+    engines = set(getattr(args, 'engines', ['ds4', 'llama']))
+    if 'all' in engines:
+        engines = {'ds4', 'llama', 'sglang', 'vllm', 'freetoken'}
+    from ai_infra.native_prepare import prepare_native, prepare_plan
+    if args.dry_run:
+        return prepare_plan(root, args, engines)
+    if engines & {'sglang', 'vllm', 'freetoken'}:
+        if args.resume:
+            raise WorkflowError('原生框架环境采用新建隔离目录；--resume 仅用于 ds4/llama P0。')
+        if engines & {'ds4', 'llama'}:
+            legacy_directory, code = prepare_p0(root, args)
+            if code:
+                return legacy_directory, code
+        return prepare_native(root, args, engines & {'sglang', 'vllm', 'freetoken'})
+    # ds4/llama 是同文件 P0 对照，保留两引擎及 scorer 的成套准备。
+    return prepare_p0(root, args)
+
+
+def prepare_p0(root: Path, args: argparse.Namespace) -> tuple[Path, int]:
     if os.name != 'posix':
         raise WorkflowError('init 目前需要 Linux/macOS；GB10 构建需要 Linux ARM64。')
     base = root / 'artifacts' / 'init'

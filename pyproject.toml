@@ -8,6 +8,11 @@ dependencies = []
 
 [project.scripts]
 init = "ai_infra.cli:init_main"
+ds4 = "ai_infra.serve_ds4:main"
+llama = "ai_infra.serve_llama:main"
+sglang = "ai_infra.serve_sglang:main"
+vllm = "ai_infra.serve_vllm:main"
+freetoken = "ai_infra.serve_freetoken:main"
 
 [build-system]
 requires = ["setuptools>=77,<85"]
