@@ -1,0 +1,25 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "tiny-inference: prepare",
+      "type": "process",
+      "command": "uv",
+      "args": [
+        "run", "--offline", "python",
+        "experiments/tiny-inference/lab.py", "prepare"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "UV_CACHE_DIR": "${workspaceFolder}/.cache/uv"
+        }
+      },
+      "problemMatcher": ["$gcc"],
+      "presentation": {
+        "reveal": "silent",
+        "panel": "dedicated"
+      }
+    }
+  ]
+}

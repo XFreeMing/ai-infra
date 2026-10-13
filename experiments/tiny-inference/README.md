@@ -25,6 +25,21 @@ uv run --offline python experiments/tiny-inference/lab.py run
 
 本引擎的 `--steps` 对应上游 `-n`，**包含输入处理的步数**。32 步不等于生成 32 个新 token。输出包含输入的回显，内置 `achieved tok/s` 混合输入处理与生成，不能当成纯 decode 基准。小练习只看实际耗时是否适合交互，不据此比较 ds4、llama.cpp 或 GB10。
 
+## 在 VS Code 中按 F5 调试
+
+用 VS Code 打开整个 `ai-infra` 项目目录，使用 CodeLLDB 扩展（`vadimcn.vscode-lldb`，当前 Mac 已安装）。[launch.json](../../.vscode/launch.json) 提供两个入口：
+
+| 配置 | 停在哪里 | 适合做什么 |
+| --- | --- | --- |
+| `TinyStories：第一个新 token` | `run.c:753`，最后一个输入 token 计算完毕 | 从第一节开始，观察输入与生成的分界 |
+| `TinyStories：从 main 开始` | `main` 函数入口 | 逐步看参数、模型加载和初始化 |
+
+在左侧“运行和调试”选择第一个配置，按 **F5**。启动前 [tasks.json](../../.vscode/tasks.json) 自动执行 `lab.py prepare`，校验固定源码和模型，重新编译带符号的调试版；模型已存在时无需再次下载。准备任务需要 `uv` 在 VS Code 的 PATH 中，新机器也需要先初始化 llama2.c 子模块。
+
+停下后，在 Variables 中查看 `pos`、`token`、`num_prompt_tokens`，也可在 Watch 中添加 `transformer->config`。按 **F10** 两次执行完 `sample`，再添加 `next`、`logits[next]`、`tokenizer->vocab[next]`；不要在采样执行前读取尚未赋值的 `next`。**F11** 进入函数，**Shift+F11** 返回调用者，**F5** 继续。Mac 若把功能键用于系统控制，需要同时按 Fn。
+
+VS Code 直接调试 C 程序，输出在集成终端，不经过 `lab.py run` 的 30 秒限制，也不会自动保存它的运行记录。结束练习可按 **Shift+F5**；需要实验日志时仍使用上面的 `lab.py run`。配置中的断点对应固定源码版本，升级 llama2.c 时需要重新核对行号。配置字段依据 [CodeLLDB 官方说明](https://github.com/vadimcn/codelldb/blob/master/MANUAL.md#starting-a-new-debug-session)。
+
 ## 第一节 10 分钟
 
 先运行一次，看到故事继续。然后只读固定源码的 [`generate` 中这一段](https://github.com/karpathy/llama2.c/blob/350e04fe35433e6d2941dce5a1f53308f87058eb/run.c#L747-L769)：
