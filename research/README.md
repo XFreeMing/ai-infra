@@ -4,6 +4,10 @@
 
 围绕技术问题保存阅读过程，把一手资讯、作者讨论、固定版本源码和实验串起来。
 
+## 从基础开始学习
+
+[后端开发者的 AI Infra 学习路线](learning/README.md)从单条推理请求开始，逐步学习模型数据、attention/KV、GPU、量化与服务调度。当前先读[第 1 课：一次请求如何变成模型输出](learning/01-request-to-tokens.md)，再用一个循环练习检查理解；不要求先读完整源码调研。
+
 ## 已建立的专题
 
 - [ds4 / DwarfStar：源码、性能、效果与横向调研](studies/ds4-inference/README.md)：静态调研已完成；兼容性、性能及任务效果尚待实际运行验证。
@@ -13,6 +17,7 @@
 
 - `studies/<slug>/README.md`：一次可持续推进的研究问题，由 `python main.py new study <slug>` 创建。
 - `people/<github-handle>.md`：按需复制[人物模板](../templates/person.md)，记录公开技术工作及与研究问题的关系。
+- `learning/`：按先修关系组织的源码导读、概念解释和练习；备课状态与学习者掌握情况分开记录。
 - 专题汇总放在对应研究目录中，链接原始证据，避免复制多份事实。
 
 研究卡采用[阅读模板](../templates/reading.md)。每条关键结论要能找到来源、源码或实验：
