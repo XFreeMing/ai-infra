@@ -19,3 +19,6 @@ wheels/
 /artifacts/
 /models/
 /.cache/
+
+# Editor-generated completion cache
+/.vscode/PythonImportHelper-v2-Completion.json

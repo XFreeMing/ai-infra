@@ -309,9 +309,11 @@ def run_experiment(root: Path, slug: str, output_dir: Path) -> tuple[Path, int]:
 
 def main(argv: list[str] | None = None, *, root: Path | None = None) -> int:
     root = (root or Path(__file__).resolve().parents[1]).resolve()
-    parser = argparse.ArgumentParser(description="Local AI Infra research and experiment helpers.")
+    parser = argparse.ArgumentParser(prog="ai-infra", description="Local AI Infra research and experiment helpers.")
     commands = parser.add_subparsers(dest="action", required=True)
     commands.add_parser("doctor", help="Report local tools, platform and pinned source versions.")
+    from ai_infra.prepare import add_init_arguments, prepare
+    add_init_arguments(commands.add_parser("init", help="准备 ds4 P0 的本地模型、CUDA 工具链与固定版本构建。"))
     new_parser = commands.add_parser("new", help="Create a study or experiment from a template.")
     new_parser.add_argument("kind", choices=("study", "experiment"))
     new_parser.add_argument("slug")
@@ -322,6 +324,10 @@ def main(argv: list[str] | None = None, *, root: Path | None = None) -> int:
     try:
         if args.action == "doctor":
             print(json.dumps(doctor(root), ensure_ascii=False, indent=2))
+        elif args.action == "init":
+            directory, exit_code = prepare(root, args)
+            print(directory)
+            return exit_code
         elif args.action == "new":
             print(new_item(root, args.kind, args.slug))
         else:
@@ -332,3 +338,8 @@ def main(argv: list[str] | None = None, *, root: Path | None = None) -> int:
     except (WorkflowError, OSError, ValueError, subprocess.TimeoutExpired) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 2
+
+
+def init_main() -> int:
+    """Console entry point for `uv run init`."""
+    return main(["init", *sys.argv[1:]])

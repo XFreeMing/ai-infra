@@ -10,12 +10,19 @@
 main.py
   └─ ai_infra/cli.py
       ├─ doctor            → 环境 / Git / submodule 状态
+      ├─ init              → prepare.py / native_prepare.py → artifacts/init/<run-id>/
       ├─ new study         → templates/reading.md → research/studies/<slug>/
       ├─ new experiment    → templates/experiment.md → experiments/<slug>/
       └─ run               → experiment.json → 子进程 → artifacts/runs/<run-id>/
 
 sources/*（Git submodule） → 研究与实验的版本依据
 artifacts/（本机产物）     → 人工审阅与整理 → reports/（轻量证据与报告）
+
+uv run ds4 / llama → serve_ds4.py / serve_llama.py（顶部配置）
+                   → server_launcher.py → prepared CUDA 二进制（前台服务）
+uv run sglang / vllm / freetoken → serve_*.py（顶部配置）
+                     → native_launcher.py → 独立 CUDA venv（前台服务）
+手动 ModelScope 下载 → scripts/download_deepseek_v41_flash_nvfp4.py → /data/models/
 ```
 
 ## 关键区域
@@ -24,6 +31,12 @@ artifacts/（本机产物）     → 人工审阅与整理 → reports/（轻量
 | --- | --- | --- | --- |
 | [main.py](../../main.py) | CLI 入口 | 命令参数 | `ai_infra.cli` |
 | [ai_infra/cli.py](../../ai_infra/cli.py) | 环境检查、记录创建、实验执行 | 实验配置、JSON / Markdown / 日志 | Python 标准库、Git |
+| [ai_infra/prepare.py](../../ai_infra/prepare.py) | ds4 P0 模型校验、CUDA 探针、独立构建 | R0_MODEL/R0_INPUTS、本地模型 / manifest、二进制与日志 | 标准库、Git、CUDA、make、CMake |
+| [服务入口](../../ai_infra/server_launcher.py) | 解析准备好的服务二进制，设置 CUDA 环境并在前台启动 | 顶部模型/参数、prepared manifest / launch.json、服务进程 | 标准库、Git、ds4-server、llama-server |
+| [原生框架准备](../../ai_infra/native_prepare.py) | 固定源码、隔离 venv、CUDA 扩展构建与实际 import probe | gitlink、构建参数 / 日志、freeze、扩展 hash | uv、Git、CUDA、各框架独立依赖 |
+| [原生服务入口](../../ai_infra/native_launcher.py) | 本地分片、CUDA、容量与来源检查后前台启动 | 顶部配置、模型目录 / launch.json | 标准库、框架独立 venv |
+| [FreeToken 入口](../../ai_infra/serve_freetoken.py) | 本地 Qwen BF16 配置、ft serve、6666 端口 | 独立 kernel cache、Qwen 模型清单 / 前台服务 | native_prepare/native_launcher、freetoken_model 的量化准入检查 |
+| [手动模型下载](../../scripts/download_deepseek_v41_flash_nvfp4.py) | 用户显式下载指定 ModelScope revision 并核对全部 SHA256 | NATIVE_MODEL / 本地权重及下载回执 | ModelScope SDK（只由此脚本安装使用） |
 | [templates/](../../templates/reading.md) | 统一记录结构 | 研究、人物、实验、报告 | 无 |
 | [research/](../../research/README.md) | 研究知识与下一步入口 | 一手来源、源码证据、假设 | 来源与源码永久链接 |
 | [experiments/](../../experiments/README.md) | 可执行实验定义 | README、JSON、实验脚本 | 按实验单独配置环境 |

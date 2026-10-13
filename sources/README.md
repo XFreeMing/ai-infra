@@ -11,6 +11,7 @@
 | llama.cpp | `sources/llama.cpp` | [仓库](https://github.com/ggml-org/llama.cpp)、[基准工具](https://github.com/ggml-org/llama.cpp/tree/master/tools/llama-bench) | 本地推理、量化、硬件后端与测量方法 |
 | llama2.c | `sources/llama2.c` | [固定源码](https://github.com/karpathy/llama2.c/tree/350e04fe35433e6d2941dce5a1f53308f87058eb)、[Mac 动手课](../experiments/tiny-inference/README.md) | 小型 CPU 推理、token、forward、采样与 KV cache；基础教学使用 |
 | ds4 / DwarfStar | `sources/ds4` | [仓库](https://github.com/antirez/ds4)、[已固定版本的 Spark 指南](https://github.com/antirez/ds4/blob/fc80bd695da76ee14bcb86820bf900a5cdfda806/docs/DGX_SPARK.md) | 少数模型的专用推理、混合低比特量化、投机解码、会话复用与 SSD 专家缓存 |
+| FreeToken | `sources/freetoken` | [固定源码](https://github.com/FlashML-org/FreeToken/tree/95ac86f21567bc244c7a9d91972838fbf049b4ed)、[初步阅读与入口](../research/studies/freetoken-inference/README.md) | MoE CPU/GPU 协同、expert cache、GB10 resident 策略与 Engram 磁盘读取；`uv run init --engines freetoken` / `uv run freetoken` |
 | CUDA / NVIDIA 工具 | 按需加入具体开源组件 | [CUDA 文档](https://docs.nvidia.com/cuda/)、[Nsight Compute](https://docs.nvidia.com/nsight-compute/) | 与实验环境对应的发布说明、构建与性能分析文档 |
 
 CUDA 文档入口不代表整个 CUDA Toolkit 的源码可作为一个 submodule 获取。需要阅读具体开源组件时，单独确定其官方仓库与许可证。

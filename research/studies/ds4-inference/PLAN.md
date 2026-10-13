@@ -2,7 +2,7 @@
 
 日期：2026-10-13。适用条件：Mac 做 AI 辅助阅读与分析，单台 PGX GB10 做验证，每周主动投入 5–8 小时。
 
-本文件是后续工作计划；尚未下载权重、构建上游、运行 GPU 测试或形成速度排名。首轮静态发现见 [总览](README.md)、[源码地图](SOURCE_MAP.md)、[证据审计](EVIDENCE.md)、[对比矩阵](COMPARISON.md)。
+本文件是后续工作计划；制定计划时尚未下载权重、构建上游或运行 GPU 测试。当前环境准备进展见下方 P0 入口；尚未形成速度排名。首轮静态发现见 [总览](README.md)、[源码地图](SOURCE_MAP.md)、[证据审计](EVIDENCE.md)、[对比矩阵](COMPARISON.md)。
 
 ## 目标与范围
 
@@ -132,3 +132,17 @@ R0–R2 为首月主线。R3–R7 是排好顺序的候选，不承诺首月全�
 6. 发布时明确“上游报告、静态推断、本机实测”的证据类别。
 
 下一步执行 R0 的 PGX 准入清单。通过后再把确定的实验写入 `experiments/`；本次不生成看似可运行、实际上缺少权重与环境的占位实验配置。
+
+## P0 前置环境入口
+
+在 PGX 执行 `uv run init`。默认优先查找 `/data/models` 下已完成的本计划 Flash 0731 Q2，校验 R0_MODEL 的完整身份；初始化固定子模块，在独立目录构建 ds4 `fc80bd6`、`d6b516a` 和 llama.cpp，准备同 revision 的 DSpark support、CUDA 小探针与 scorer。参数与产物说明见[工作台入口](../../../README.md)。`uv run init --check-only` 只盘点并保存准备清单，不通过 R0。
+
+原生框架新增 `uv run init --engines sglang vllm`，独立环境与源码构建计划见 [NATIVE_SERVING.md](NATIVE_SERVING.md)。模型按用户指定使用 ModelScope `nv-community/DeepSeek-V4.1-Flash-NVFP4`，手动下载入口独立于 init。这份 491.1 GiB 的 V4.1 checkpoint 不属于本 P0 同文件对照，也不能装入单 GB10；当前只准备脚本，没有执行框架构建或模型推理。
+
+已理解：`init` 将环境准备固定到本地模型身份、输入字节、源码 SHA、构建命令和实际二进制/库路径。
+
+未解决：准备完成不代表 R0 通过；token ID、模型加载、短生成、质量与 R2 状态正确性仍须实测。
+
+下一步：查看 `artifacts/init/<run-id>/manifest.json` 的 `blockers`，排除缺项后按 R0 的 P4–P7 准入步骤串行验证。
+
+2026-10-13 本机准备观测（不是模型推理或性能结果）：复用 `/data/models` 中的 Flash 0731 Q2，完整 SHA256 与 R0_MODEL 一致；补齐并校验 5,989,114,272 bytes 的 DSpark support（SHA256 `7e319924541db3f7a163ed7e11d7532a70d48228ab59d36cb81e1d4511885360`）。GB10 小型 CUDA kernel 探针通过，两个 ds4 版本、llama.cpp 和 scorer 已构建。scorer 需要一处 `use_mmap` → `load_mode` API 适配，原始失败、适配 diff/hash 和实际库路径均保存。准备目录为 `artifacts/init/20261013T011538Z-ds4-p0-gl0ppgtj/`，状态 `prepared`；这些是本机产物，尚未发布为公共证据。R0 整体仍 pending，下一步执行 token 对齐与同文件加载/32-token 短生成。
