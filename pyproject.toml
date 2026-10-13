@@ -6,5 +6,12 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = []
 
-[tool.uv]
-package = false
+[project.scripts]
+init = "ai_infra.cli:init_main"
+
+[build-system]
+requires = ["setuptools>=77,<85"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["ai_infra"]

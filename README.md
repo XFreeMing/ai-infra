@@ -42,6 +42,32 @@ git submodule update --init --recursive sources/vllm
 
 [R0 兼容性核查](research/studies/ds4-inference/R0.md)已锁定同 GGUF 候选，读取实际头部并核对模型、量化和模板；同文件具备静态比较条件，PGX 的加载、token 对齐与短生成仍待验证。
 
+在 PGX 准备 P0（R0–R2）的前置环境：
+
+```sh
+uv run init
+```
+
+优先复用 `/data/models` 中完整的 Flash 0731 Q2 GGUF，校验冻结的大小、含对齐 padding 的 GGUF header 与全文件 SHA256；不下载另一份主权重，不选择 `.incomplete` 或其他模型替代同文件比较。然后初始化固定版本的 ds4/llama.cpp、准备 R2 的 DSpark support、小型 CUDA kernel 探针，并串行构建两个 ds4 版本、llama.cpp 与质量 scorer。只需 Python 标准库；`uv` 用 setuptools 安装本项目的命令入口。
+
+每次准备生成独立的 `artifacts/init/<run-id>/`，保存输入原始字节、环境、完整命令、构建日志、二进制 hash 与 `ldd` 路径。源子模块保持固定提交，旧版 ds4 在单独 clone 构建。模型权重不复制进构建目录；缺少的 support 下载到被 Git 忽略的 `artifacts/models/<HF-revision>/`。
+
+```sh
+uv run init --check-only                  # 只盘点；退出码 2，表示还未准备完
+uv run init --models-dir /data/models --cuda-home /usr/local/cuda --jobs 4
+uv run --offline init --offline           # uv 与 init 分别禁止联网
+uv run --offline python main.py init      # 原入口仍可用
+uv run init --resume artifacts/init/<run-id>  # 恢复未完成的准备，保留历史日志
+```
+
+`--build-timeout` 默认 1800 秒，全部构建共享预算；`--download-timeout` 默认 1800 秒，support 下载支持续传；Git 初始化每个子模块预算 900 秒。已有本地模型仍需完整读取约 81 GiB 以计算 SHA256。缺少编译器、toolkit、设备权限或依赖时保存 `blockers` 并返回 2；不会自动修改系统驱动、安装系统包、清空 swap 或停止其他进程。首次 `uv` 安装需要已有 setuptools 缓存或网络。
+
+`prepared`/退出码 0 仅表示前置准备完成。实际 token 对齐、两个引擎加载同一模型、32-token 短生成、质量检查及 R2 的 rewind 触发仍需按 [R0.md](research/studies/ds4-inference/R0.md) 执行；CUDA 小探针不等于模型兼容性或性能验证。长实验先提交工作台改动，在独立且干净的主仓库 clone 中重新准备。
+
+固定版本的 [`score_llama.cpp:187`](https://github.com/antirez/ds4/blob/fc80bd695da76ee14bcb86820bf900a5cdfda806/gguf-tools/quality-testing/score_llama.cpp#L187) 使用旧 API `use_mmap=true`；固定 llama.cpp 已改为 [`load_mode`](https://github.com/ggml-org/llama.cpp/blob/972b5fcc19670e597f8de9bf5cacfb85752a5fff/include/llama.h#L329)。`init` 对 scorer 的固定源码 hash 做检查，在产物目录生成仅替换为 `LLAMA_LOAD_MODE_MMAP` 的副本，用锁定的 llama.cpp 头文件和库编译；manifest 保存原始/适配源码与 patch 的 hash。评分和分词代码保持原样，质量正确性仍需 P7 验证。
+
+`--resume` 只接受 `blocked`/`interrupted` 目录；复用前检查源码提交、clean 状态和二进制 hash，完整模型仍重新校验。已就绪的准备目录不允许恢复，避免改动可能用于运行的产物。未完成的引擎构建保留原目录，需新建准备；scorer 或下载失败可直接恢复。
+
 ## 开始一次研究
 
 ```sh
