@@ -29,6 +29,7 @@ artifacts/（本机产物）     → 人工审阅与整理 → reports/（轻量
 | [templates/](../../templates/reading.md) | 统一记录结构 | 研究、人物、实验、报告 | 无 |
 | [research/](../../research/README.md) | 研究知识与下一步入口 | 一手来源、源码证据、假设 | 来源与源码永久链接 |
 | [experiments/](../../experiments/README.md) | 可执行实验定义 | README、JSON、实验脚本 | 按实验单独配置环境 |
+| [tiny-inference](../../experiments/tiny-inference/README.md) | 小模型准备、运行记录与 LLDB 练习 | 固定模型、构建记录、运行结果 | Python 标准库、clang、curl、llama2.c submodule |
 | [sources/](../../sources/README.md) | 固定上游源码 | vLLM、SGLang、llama.cpp、ds4 | Git submodule |
 | [reports/](../../reports/README.md) | 可公开验证的成果 | 轻量原始数据、报告 | 运行清单与分析脚本 |
 

@@ -1,0 +1,90 @@
+(lldb) target create "artifacts/tiny-inference/run-debug"
+Current executable set to '/Users/x/workspace/ai-infra/artifacts/tiny-inference/run-debug' (arm64).
+(lldb) settings set -- target.run-args  "models/tiny-inference/stories15M.bin" "-z" "sources/llama2.c/tokenizer.bin" "-t" "0" "-s" "1" "-n" "8" "-i" "Once upon a time"
+(lldb) command source -s 0 'experiments/tiny-inference/first-token.lldb'
+Executing commands in '/Users/x/workspace/ai-infra/experiments/tiny-inference/first-token.lldb'.
+(lldb) # Run from the project root with the run-debug binary and the documented prompt.
+(lldb) # Stop AFTER forward has assigned logits, before choosing the first new token.
+(lldb) breakpoint set --file run.c --line 753 --condition 'pos == num_prompt_tokens - 1'
+Breakpoint 1: where = run-debug`generate + 252 at run.c:753:13, address = 0x0000000100002b10
+(lldb) run
+Once upon a timeProcess 60227 launched: '/Users/x/workspace/ai-infra/artifacts/tiny-inference/run-debug' (arm64)
+Process 60227 stopped
+* thread #1, queue = 'com.apple.main-thread', stop reason = breakpoint 1.1
+       frame #0: 0x0000000100002b10 run-debug`generate(transformer=0x000000016fdfe6e8, tokenizer=0x000000016fdfe838, sampler=0x000000016fdfe6c8, prompt="Once upon a time", steps=8) at run.c:753:13
+   750 	        float* logits = forward(transformer, token, pos);
+   751 	
+   752 	        // advance the state machine
+-> 753 	        if (pos < num_prompt_tokens - 1) {
+    	            ^
+   754 	            // if we are still processing the input prompt, force the next prompt token
+   755 	            next = prompt_tokens[pos + 1];
+   756 	        } else {
+Target 0: (run-debug) stopped.
+(lldb) frame variable token pos num_prompt_tokens
+(int) token = 931
+(int) pos = 4
+(int) num_prompt_tokens = 5
+(lldb) p transformer->config
+(Config) {
+  dim = 288
+  hidden_dim = 768
+  n_layers = 6
+  n_heads = 6
+  n_kv_heads = 6
+  vocab_size = 32000
+  seq_len = 256
+}
+(lldb) parray 5 prompt_tokens
+(int *) $0 = 0x000000010068e3e0 {
+  [0] = 1
+  [1] = 9038
+  [2] = 2501
+  [3] = 263
+  [4] = 931
+}
+(lldb) parray 8 logits
+(float *) $1 = 0x0000007c64b60000 {
+  [0] = -10.4208622
+  [1] = 0.461928427
+  [2] = -10.4208317
+  [3] = -10.4209785
+  [4] = -10.421051
+  [5] = -10.4209785
+  [6] = -10.4209862
+  [7] = -10.4210081
+}
+(lldb) next
+Process 60227 stopped
+* thread #1, queue = 'com.apple.main-thread', stop reason = step over
+       frame #0: 0x0000000100002b40 run-debug`generate(transformer=0x000000016fdfe6e8, tokenizer=0x000000016fdfe838, sampler=0x000000016fdfe6c8, prompt="Once upon a time", steps=8) at run.c:758:27
+   755 	            next = prompt_tokens[pos + 1];
+   756 	        } else {
+   757 	            // otherwise sample the next token from the logits
+-> 758 	            next = sample(sampler, logits);
+    	                          ^
+   759 	        }
+   760 	        pos++;
+   761 	
+Target 0: (run-debug) stopped.
+(lldb) next
+Process 60227 stopped
+* thread #1, queue = 'com.apple.main-thread', stop reason = step over
+       frame #0: 0x0000000100002b54 run-debug`generate(transformer=0x000000016fdfe6e8, tokenizer=0x000000016fdfe838, sampler=0x000000016fdfe6c8, prompt="Once upon a time", steps=8) at run.c:760:12
+   757 	            // otherwise sample the next token from the logits
+   758 	            next = sample(sampler, logits);
+   759 	        }
+-> 760 	        pos++;
+    	           ^
+   761 	
+   762 	        // data-dependent terminating condition: the BOS (=1) token delimits sequences
+   763 	        if (next == 1) { break; }
+Target 0: (run-debug) stopped.
+(lldb) p next
+(int) 29892
+(lldb) p logits[next]
+(float) 18.3597507
+(lldb) p tokenizer->vocab[next]
+(char *) 0x0000007c650805c0 ","
+(lldb) process kill
+Process 60227 exited with status = 9 (0x00000009) killed

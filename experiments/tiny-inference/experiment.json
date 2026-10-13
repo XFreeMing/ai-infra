@@ -1,0 +1,6 @@
+{
+  "id": "tiny-inference",
+  "command": ["{python}", "experiments/tiny-inference/lab.py", "run"],
+  "timeout_seconds": 40,
+  "required_sources": ["sources/llama2.c"]
+}

@@ -10,3 +10,6 @@
 [submodule "sources/ds4"]
 	path = sources/ds4
 	url = https://github.com/antirez/ds4.git
+[submodule "sources/llama2.c"]
+	path = sources/llama2.c
+	url = https://github.com/karpathy/llama2.c.git
