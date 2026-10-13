@@ -1,0 +1,123 @@
+{
+  "experiment_id": "tiny-inference",
+  "run_id": "20261013T015025Z-ed17764b",
+  "started_at": "2026-10-13T01:50:25.212240+00:00",
+  "mode": "CPU learning run; not a GB10 benchmark",
+  "configuration": {
+    "prompt": "Once upon a time",
+    "steps": 32,
+    "temperature": 0,
+    "seed": 1,
+    "debug_build": false,
+    "timeout_seconds": 30
+  },
+  "model_lock": {
+    "source": {
+      "path": "sources/llama2.c",
+      "url": "https://github.com/karpathy/llama2.c",
+      "commit": "350e04fe35433e6d2941dce5a1f53308f87058eb"
+    },
+    "model": {
+      "repository": "karpathy/tinyllamas",
+      "revision": "0bd21da7698eaf29a0d7de3992de8a46ef624add",
+      "filename": "stories15M.bin",
+      "url": "https://huggingface.co/karpathy/tinyllamas/resolve/0bd21da7698eaf29a0d7de3992de8a46ef624add/stories15M.bin",
+      "bytes": 60816028,
+      "sha256": "cd590644d963867a2b6e5a1107f51fad663c41d79c149fbecbbb1f95fa81f49a"
+    },
+    "tokenizer": {
+      "path": "sources/llama2.c/tokenizer.bin",
+      "sha256": "50a52ef822ee9e83de5ce9d0be0a025a773d019437f58b5ff9dcafb063ece361"
+    }
+  },
+  "environment": {
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "machine": "arm64",
+    "python": "3.12.13 (main, Mar 10 2026, 18:18:07) [Clang 21.1.4 ]",
+    "python_executable": "/Users/x/workspace/ai-infra/.venv/bin/python3"
+  },
+  "stdout_file": "model.stdout.log",
+  "stderr_file": "model.stderr.log",
+  "parent_commit": "e261dddbb7f832f47fa904df336a20b0dfce68de",
+  "parent_status": [
+    " M sources/llama.cpp",
+    " M sources/sglang",
+    " M sources/vllm"
+  ],
+  "source": {
+    "commit": "350e04fe35433e6d2941dce5a1f53308f87058eb",
+    "path": "/Users/x/workspace/ai-infra/sources/llama2.c",
+    "run_c_sha256": "9c4f2d5c6ae01b71726d1cc37530d71e60bff0ec7cc012565f16a43c1ca658bd",
+    "tokenizer_sha256": "50a52ef822ee9e83de5ce9d0be0a025a773d019437f58b5ff9dcafb063ece361"
+  },
+  "build": {
+    "created_at": "2026-10-13T01:46:08.672285+00:00",
+    "source": {
+      "commit": "350e04fe35433e6d2941dce5a1f53308f87058eb",
+      "path": "/Users/x/workspace/ai-infra/sources/llama2.c",
+      "run_c_sha256": "9c4f2d5c6ae01b71726d1cc37530d71e60bff0ec7cc012565f16a43c1ca658bd",
+      "tokenizer_sha256": "50a52ef822ee9e83de5ce9d0be0a025a773d019437f58b5ff9dcafb063ece361"
+    },
+    "model": {
+      "repository": "karpathy/tinyllamas",
+      "revision": "0bd21da7698eaf29a0d7de3992de8a46ef624add",
+      "filename": "stories15M.bin",
+      "url": "https://huggingface.co/karpathy/tinyllamas/resolve/0bd21da7698eaf29a0d7de3992de8a46ef624add/stories15M.bin",
+      "bytes": 60816028,
+      "sha256": "cd590644d963867a2b6e5a1107f51fad663c41d79c149fbecbbb1f95fa81f49a"
+    },
+    "compiler": "/usr/bin/clang",
+    "compiler_version": "Apple clang version 21.0.0 (clang-2100.3.34.2)\nTarget: arm64-apple-darwin27.0.0\nThread model: posix\nInstalledDir: /Library/Developer/CommandLineTools/usr/bin",
+    "environment": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit",
+      "machine": "arm64"
+    },
+    "binaries": {
+      "fast": {
+        "path": "/Users/x/workspace/ai-infra/artifacts/tiny-inference/run-fast",
+        "sha256": "2bc24ca3e20e1d1f2bf7e4e2ec102c9a8a71f411725aa931709a66003e91e965",
+        "command": [
+          "/usr/bin/clang",
+          "-O3",
+          "/Users/x/workspace/ai-infra/sources/llama2.c/run.c",
+          "-lm",
+          "-o",
+          "/Users/x/workspace/ai-infra/artifacts/tiny-inference/run-fast"
+        ]
+      },
+      "debug": {
+        "path": "/Users/x/workspace/ai-infra/artifacts/tiny-inference/run-debug",
+        "sha256": "bf9f5aeb2589b66aedb02398f8a077de8f00748dae931bb2d8f7c942dae6d602",
+        "command": [
+          "/usr/bin/clang",
+          "-O0",
+          "-g",
+          "/Users/x/workspace/ai-infra/sources/llama2.c/run.c",
+          "-lm",
+          "-o",
+          "/Users/x/workspace/ai-infra/artifacts/tiny-inference/run-debug"
+        ]
+      }
+    }
+  },
+  "command": [
+    "/Users/x/workspace/ai-infra/artifacts/tiny-inference/run-fast",
+    "/Users/x/workspace/ai-infra/models/tiny-inference/stories15M.bin",
+    "-z",
+    "/Users/x/workspace/ai-infra/sources/llama2.c/tokenizer.bin",
+    "-t",
+    "0",
+    "-s",
+    "1",
+    "-n",
+    "32",
+    "-i",
+    "Once upon a time"
+  ],
+  "status": "succeeded",
+  "inference_process_seconds": 0.18635500001255423,
+  "process_exit_code": 0,
+  "exit_code": 0,
+  "wall_seconds": 0.5450478330021724,
+  "finished_at": "2026-10-13T01:50:25.767214+00:00"
+}

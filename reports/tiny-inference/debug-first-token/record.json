@@ -1,0 +1,100 @@
+{
+  "experiment_id": "tiny-inference",
+  "run_id": "20261013T0150-debug-first-token",
+  "log_finished_at": "2026-10-13T01:50:38.397350+00:00",
+  "parent_commit": "e261dddbb7f832f47fa904df336a20b0dfce68de",
+  "source_commit": "350e04fe35433e6d2941dce5a1f53308f87058eb",
+  "build": {
+    "created_at": "2026-10-13T01:46:08.672285+00:00",
+    "source": {
+      "commit": "350e04fe35433e6d2941dce5a1f53308f87058eb",
+      "path": "/Users/x/workspace/ai-infra/sources/llama2.c",
+      "run_c_sha256": "9c4f2d5c6ae01b71726d1cc37530d71e60bff0ec7cc012565f16a43c1ca658bd",
+      "tokenizer_sha256": "50a52ef822ee9e83de5ce9d0be0a025a773d019437f58b5ff9dcafb063ece361"
+    },
+    "model": {
+      "repository": "karpathy/tinyllamas",
+      "revision": "0bd21da7698eaf29a0d7de3992de8a46ef624add",
+      "filename": "stories15M.bin",
+      "url": "https://huggingface.co/karpathy/tinyllamas/resolve/0bd21da7698eaf29a0d7de3992de8a46ef624add/stories15M.bin",
+      "bytes": 60816028,
+      "sha256": "cd590644d963867a2b6e5a1107f51fad663c41d79c149fbecbbb1f95fa81f49a"
+    },
+    "compiler": "/usr/bin/clang",
+    "compiler_version": "Apple clang version 21.0.0 (clang-2100.3.34.2)\nTarget: arm64-apple-darwin27.0.0\nThread model: posix\nInstalledDir: /Library/Developer/CommandLineTools/usr/bin",
+    "environment": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit",
+      "machine": "arm64"
+    },
+    "binaries": {
+      "fast": {
+        "path": "/Users/x/workspace/ai-infra/artifacts/tiny-inference/run-fast",
+        "sha256": "2bc24ca3e20e1d1f2bf7e4e2ec102c9a8a71f411725aa931709a66003e91e965",
+        "command": [
+          "/usr/bin/clang",
+          "-O3",
+          "/Users/x/workspace/ai-infra/sources/llama2.c/run.c",
+          "-lm",
+          "-o",
+          "/Users/x/workspace/ai-infra/artifacts/tiny-inference/run-fast"
+        ]
+      },
+      "debug": {
+        "path": "/Users/x/workspace/ai-infra/artifacts/tiny-inference/run-debug",
+        "sha256": "bf9f5aeb2589b66aedb02398f8a077de8f00748dae931bb2d8f7c942dae6d602",
+        "command": [
+          "/usr/bin/clang",
+          "-O0",
+          "-g",
+          "/Users/x/workspace/ai-infra/sources/llama2.c/run.c",
+          "-lm",
+          "-o",
+          "/Users/x/workspace/ai-infra/artifacts/tiny-inference/run-debug"
+        ]
+      }
+    }
+  },
+  "binary_sha256_observed": "bf9f5aeb2589b66aedb02398f8a077de8f00748dae931bb2d8f7c942dae6d602",
+  "lldb_script": "experiments/tiny-inference/first-token.lldb",
+  "lldb_script_sha256": "20e902b32ad7c17aa9df80a9ded18705f6bf95123710d649616cdd02e848e807",
+  "command": [
+    "lldb",
+    "--batch",
+    "-s",
+    "experiments/tiny-inference/first-token.lldb",
+    "-o",
+    "next",
+    "-o",
+    "next",
+    "-o",
+    "p next",
+    "-o",
+    "p logits[next]",
+    "-o",
+    "p tokenizer->vocab[next]",
+    "-o",
+    "process kill",
+    "--",
+    "artifacts/tiny-inference/run-debug",
+    "models/tiny-inference/stories15M.bin",
+    "-z",
+    "sources/llama2.c/tokenizer.bin",
+    "-t",
+    "0",
+    "-s",
+    "1",
+    "-n",
+    "8",
+    "-i",
+    "Once upon a time"
+  ],
+  "outcome": "LLDB exited 0; inspected first selected token; inferior intentionally killed via process kill",
+  "log_sha256": "2fedde60e37b3157d5df4e9b4f549e8bc089f68afa790ac21cfb923541972f10",
+  "hardware": {
+    "model": "Mac16,11",
+    "memory_bytes": 68719476736,
+    "architecture": "arm64",
+    "source": "sysctl hw.model/hw.memsize and uname -m"
+  },
+  "note": "CPU teaching observation; debug time is not a performance measurement; unrelated source gitlinks differ as recorded in sibling inference runs."
+}
