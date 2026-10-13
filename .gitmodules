@@ -13,3 +13,6 @@
 [submodule "sources/llama2.c"]
 	path = sources/llama2.c
 	url = https://github.com/karpathy/llama2.c.git
+[submodule "sources/freetoken"]
+	path = sources/freetoken
+	url = https://github.com/FlashML-org/FreeToken.git
