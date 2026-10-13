@@ -38,6 +38,8 @@ git submodule update --init --recursive sources/vllm
 
 ## 当前研究
 
+当前动手入口：[在 Mac 上调试一个小模型](experiments/tiny-inference/README.md)。TinyStories 15M 约 61 MB，搭配 llama2.c 的单个 C 推理文件，已在本机 CPU 上运行并验证 LLDB 断点。每次 10–20 分钟，从 token 与生成循环开始；[实测记录](reports/tiny-inference/README.md)保留来源与原始输出。
+
 从零开始可以先读[源码学习路线](research/learning/README.md)与[第 1 课：一次请求如何变成模型输出](research/learning/01-request-to-tokens.md)。它们以已有后端经验为起点，每次解释一个流程、阅读少量代码，并用小练习检查理解。
 
 [ds4 / DwarfStar 源码调研](research/studies/ds4-inference/README.md)已经整理实现机制、作者性能与质量证据、与 llama.cpp / vLLM / SGLang 的比较边界，以及按每周 5–8 小时推进的[调研与实验计划](research/studies/ds4-inference/PLAN.md)。本轮完成静态源码和一手证据研究，尚未运行模型或 GPU 性能实验。
@@ -66,7 +68,7 @@ uv run --offline python main.py new experiment prefix-cache-boundary
 | 路径 | 内容 |
 | --- | --- |
 | [AGENTS.md](AGENTS.md) | AI 阅读、修改和证据记录约定 |
-| [sources/](sources/README.md) | vLLM、SGLang、llama.cpp、ds4 的 submodule 与官方入口 |
+| [sources/](sources/README.md) | vLLM、SGLang、llama.cpp、ds4、llama2.c 的 submodule 与官方入口 |
 | [research/](research/README.md) | 研究卡、英文精读、人物档案 |
 | [experiments/](experiments/README.md) | 假设、执行配置、实验和分析脚本 |
 | [reports/](reports/README.md) | 原始小型数据、实验报告、专题成果 |

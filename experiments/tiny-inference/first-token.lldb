@@ -1,0 +1,8 @@
+# Run from the project root with the run-debug binary and the documented prompt.
+# Stop AFTER forward has assigned logits, before choosing the first new token.
+breakpoint set --file run.c --line 753 --condition 'pos == num_prompt_tokens - 1'
+run
+frame variable token pos num_prompt_tokens
+p transformer->config
+parray 5 prompt_tokens
+parray 8 logits

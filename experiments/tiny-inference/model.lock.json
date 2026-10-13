@@ -1,0 +1,19 @@
+{
+  "source": {
+    "path": "sources/llama2.c",
+    "url": "https://github.com/karpathy/llama2.c",
+    "commit": "350e04fe35433e6d2941dce5a1f53308f87058eb"
+  },
+  "model": {
+    "repository": "karpathy/tinyllamas",
+    "revision": "0bd21da7698eaf29a0d7de3992de8a46ef624add",
+    "filename": "stories15M.bin",
+    "url": "https://huggingface.co/karpathy/tinyllamas/resolve/0bd21da7698eaf29a0d7de3992de8a46ef624add/stories15M.bin",
+    "bytes": 60816028,
+    "sha256": "cd590644d963867a2b6e5a1107f51fad663c41d79c149fbecbbb1f95fa81f49a"
+  },
+  "tokenizer": {
+    "path": "sources/llama2.c/tokenizer.bin",
+    "sha256": "50a52ef822ee9e83de5ce9d0be0a025a773d019437f58b5ff9dcafb063ece361"
+  }
+}

@@ -6,6 +6,8 @@
 
 ## 从基础开始学习
 
+想先动手，可用 [Mac 小模型实验](../experiments/tiny-inference/README.md)：约 61 MB 的英文故事模型已经在本机跑通，可以逐行调试。
+
 [后端开发者的 AI Infra 学习路线](learning/README.md)从单条推理请求开始，逐步学习模型数据、attention/KV、GPU、量化与服务调度。当前先读[第 1 课：一次请求如何变成模型输出](learning/01-request-to-tokens.md)，再用一个循环练习检查理解；不要求先读完整源码调研。
 
 ## 已建立的专题
