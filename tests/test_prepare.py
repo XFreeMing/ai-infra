@@ -17,7 +17,7 @@ from lab_tools import cli, prepare as prep
 
 class PreparationTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix='ai-infra-prepare-')
+        self.temp = tempfile.TemporaryDirectory(prefix='lab_tools-prepare-')
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.study = self.root / prep.STUDY
@@ -351,7 +351,7 @@ class PreparationTests(unittest.TestCase):
                'parent_commit': 'parent', 'cuda_home': str(cuda),
                'inputs': {name: {'sha256': hashlib.sha256((self.study / name).read_bytes()).hexdigest()}
                           for name in ('R0_MODEL.json', 'R0_INPUTS.json')},
-               'commands': [{'label': 'version-cc', 'exit_code': 127}], 'builds': {}}
+               'commands': [{'label': 'version-cc', 'exit_code': 127}], 'builds': {}, 'sources': {}}
         (directory / 'manifest.json').write_text(json.dumps(old))
         # This tests admission orchestration; no real compiler/GPU is exercised.
         with patch.object(prep, 'doctor', return_value={'project_commit': 'parent'}), \
@@ -415,7 +415,7 @@ class PreparationTests(unittest.TestCase):
 
         with patch.object(prep, 'OLD_DS4', old), patch.object(recorder, 'require', side_effect=fake_build), \
              patch.object(prep, 'adapt_score_llama', return_value={'adapted_source': 'fake-adapter.cpp'}):
-            result = prep.build_all(self.root, sources, self.root / 'cuda', self.args(), recorder)
+            result = prep.build_all(self.root, sources, self.root / 'cuda', self.args('--frozen-p0'), recorder)
         self.assertEqual((output / 'ds4-old/source.txt').read_text(), 'old')
         self.assertEqual((output / 'ds4-new/source.txt').read_text(), 'new')
         self.assertEqual(git('rev-parse', 'HEAD'), newer)
@@ -424,12 +424,41 @@ class PreparationTests(unittest.TestCase):
         self.assertEqual(result['ds4-new']['status'], 'built')
         with patch.object(prep, 'OLD_DS4', old), patch.object(recorder, 'require', side_effect=fake_build) as run, \
              patch.object(prep, 'adapt_score_llama', return_value={'adapted_source': 'fake-adapter.cpp'}), redirect_stdout(io.StringIO()):
-            prep.build_all(self.root, sources, self.root / 'cuda', self.args(), recorder)
+            prep.build_all(self.root, sources, self.root / 'cuda', self.args('--frozen-p0'), recorder)
         self.assertFalse(any(call.args[0].startswith(('clone-', 'checkout-', 'build-ds4-', 'build-llama'))
                              for call in run.call_args_list))
         (output / 'ds4-new/ds4').write_bytes(b'modified')
         with patch.object(prep, 'OLD_DS4', old), redirect_stdout(io.StringIO()), self.assertRaisesRegex(cli.WorkflowError, '二进制身份'):
-            prep.build_all(self.root, sources, self.root / 'cuda', self.args(), recorder)
+            prep.build_all(self.root, sources, self.root / 'cuda', self.args('--frozen-p0'), recorder)
+
+    def test_current_source_build_omits_historical_ds4_and_scorers(self):
+        output = self.root / 'current-build'
+        output.mkdir()
+        recorder = prep.Recorder(self.root, output, {'commands': []})
+        sources = {name: {'path': '/fixture', 'commit': 'new-main'} for name in ('ds4', 'llama.cpp')}
+        def build(label, argv, cwd, timeout, env=None):
+            if label.startswith('build-ds4'):
+                cwd.mkdir(parents=True, exist_ok=True)
+                for name in ('ds4', 'ds4-server', 'ds4-bench'):
+                    (cwd / name).write_bytes(b'fixture')
+            elif label == 'build-llama':
+                directory = cwd / 'build-p0/bin'
+                directory.mkdir(parents=True)
+                for name in ('llama-cli', 'llama-server', 'llama-bench', 'llama-tokenize'):
+                    (directory / name).write_bytes(b'fixture')
+            log = output / (label + '.log')
+            log.write_text('fixture')
+            return {'exit_code': 0, 'log': log.name}
+        with patch.object(recorder, 'require', side_effect=build) as run, patch.object(prep, 'adapt_score_llama') as scorer:
+            result = prep.build_all(self.root, sources, self.root / 'cuda', self.args(), recorder)
+        self.assertEqual(set(result), {'ds4-new', 'llama'})
+        scorer.assert_not_called()
+        self.assertFalse(any('score' in call.args[0] or 'ds4-old' in call.args[0] for call in run.call_args_list))
+
+    def test_source_updates_are_rejected_for_offline_plan_and_resume(self):
+        for flag in ('--offline', '--dry-run', '--check-only'):
+            with self.assertRaisesRegex(cli.WorkflowError, '--update-sources'):
+                prep.prepare(self.root, self.args('--update-sources', flag))
 
     def test_console_entry_point_forwards_arguments(self):
         with patch.object(sys, 'argv', ['init', '--offline']), patch.object(cli, 'main', return_value=2) as main:

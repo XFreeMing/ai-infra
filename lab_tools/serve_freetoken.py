@@ -8,8 +8,8 @@ PREPARATION_DIR: Path | None = None
 CUDA_VISIBLE_DEVICES = '0'
 HOST = '0.0.0.0'
 PORT = 6666
-CONTEXT_SIZE = 4096  # 本地 config 声明最大 262144；先做短 context smoke。
-NUM_KV_PAGES = 4096  # 固定小 KV cache；GB10 启动 free-memory 基线会受文件缓存影响。
+CONTEXT_SIZE = 65536  # 输入和输出的总 token 上限；模型声明最大 262144。
+NUM_KV_PAGES = 65536  # page_size=1；显式分配与 context 相同的 KV 容量。
 DTYPE = 'bfloat16'
 MAX_PREFILL_LENGTH = 4096
 MAX_RUNNING_REQUESTS = 1

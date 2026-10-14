@@ -15,9 +15,12 @@ from lab_tools.prepare import fingerprint
 
 class ServerLauncherTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix='ai-infra-serve-')
+        self.temp = tempfile.TemporaryDirectory(prefix='lab_tools-serve-')
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
+        revision = patch.object(launcher, 'source_revision', side_effect=lambda root, name, git: ('a' if name == 'ds4' else 'b', 'fixture'))
+        revision.start()
+        self.addCleanup(revision.stop)
         self.model = self.root / 'model with spaces.gguf'
         self.model.write_bytes(b'GGUFfixture')
         self.config = self.root / 'settings.py'
@@ -69,6 +72,13 @@ class ServerLauncherTests(unittest.TestCase):
         self.save()
         with self.assertRaisesRegex(WorkflowError, 'uv run init'):
             launcher.resolve_server(self.root, 'ds4', None, None)
+
+    def test_latest_launch_never_silently_selects_historical_p0(self):
+        with patch.object(launcher, 'source_revision', return_value=('new-main', 'fixture')):
+            with self.assertRaisesRegex(WorkflowError, 'uv run init'):
+                launcher.resolve_server(self.root, 'ds4', None, None)
+            binary, _, _ = launcher.resolve_server(self.root, 'ds4', None, self.prepared)
+        self.assertEqual(binary, self.ds4)
 
     def test_dry_run_does_not_exec_or_create_launch_receipt(self):
         with patch.object(launcher.os, 'execve') as execute, redirect_stdout(io.StringIO()) as output:

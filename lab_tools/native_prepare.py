@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import shutil
 import tempfile
 import time
@@ -15,14 +16,16 @@ from contextlib import contextmanager
 from lab_tools.cli import WorkflowError, _git, _reject_hidden_changes
 from lab_tools.native_model import MODEL_DIR, PROFILE, inspect_model, profile
 from lab_tools.prepare import Recorder, cuda_home, sha256
+from lab_tools.source_tracking import source_revision
 
-# Dependency/layout expectations come from these exact gitlinks, not latest docs.
+# Audited defaults for planning without a local checkout. Actual init snapshots
+# the selected checkout and reads its build requirements before installing.
 SOURCES = {
-    'sglang': {'commit': 'f006fb49ecd93322802ddebff80821f8e6296893',
+    'sglang': {'commit': '684fea8af3b11a5b51ec9966c02959a32ad3421c',
                'url': 'https://github.com/sgl-project/sglang.git', 'torch': '2.14.1'},
-    'vllm': {'commit': '2534a96fcf165202f5358335f8b0705175159fd0',
+    'vllm': {'commit': 'd5e62627a3ece4b2d045cbb2b22ac26c061c8313',
              'url': 'https://github.com/vllm-project/vllm.git', 'torch': '2.13.0'},
-    'freetoken': {'commit': '95ac86f21567bc244c7a9d91972838fbf049b4ed',
+    'freetoken': {'commit': '9c635a157798da4aa43e6d051e92620521ed1858',
                   'url': 'https://github.com/FlashML-org/FreeToken.git', 'torch': '2.14.1'},
 }
 PYTHON_VERSION = '3.12'
@@ -133,14 +136,15 @@ def default_package_index(root: Path) -> str:
 
 PROBE = r'''
 import importlib, importlib.metadata, json, os, pathlib, platform, sys, torch
-engine, source, output = sys.argv[1:]
+engine, source, output, torch_requirement = sys.argv[1:]
 source = pathlib.Path(source).resolve()
 module = importlib.import_module(engine)
 actual = pathlib.Path(module.__file__).resolve()
 assert actual.is_relative_to(source), f"wrong import provenance: {actual}"
 assert torch.cuda.is_available(), "PyTorch has no accessible CUDA device"
 assert torch.version.cuda, "CPU-only PyTorch"
-assert torch.__version__.split('+')[0] == {'sglang': '2.14.1', 'vllm': '2.13.0', 'freetoken': '2.14.1'}[engine], "unexpected torch version"
+from packaging.requirements import Requirement
+assert Requirement(torch_requirement).specifier.contains(torch.__version__.split('+')[0], prereleases=True), "unexpected torch version"
 assert torch.cuda.get_device_capability(0) == (12, 1), "expected GB10 sm_121"
 tensor = torch.arange(8, device='cuda')
 result = tensor.sum().item()
@@ -167,7 +171,7 @@ if engine == 'freetoken':
     store_correct = bool(torch.equal(kc[indices], k) and torch.equal(vc[indices], v))
     assert store_correct, 'FreeToken CUDA store_cache output mismatch'
 else:
-    extension = importlib.import_module('sgl_kernel' if engine == 'sglang' else 'vllm._C')
+    extension = importlib.import_module('sgl_kernel' if engine == 'sglang' else 'vllm._C_stable_libtorch')
 extension_root = pathlib.Path(extension.__file__).resolve()
 if engine == 'freetoken':
     paths = sorted((source / 'python/freetoken').rglob('*.so'))
@@ -216,11 +220,26 @@ def new_directory(root: Path, suffix: str) -> Path:
     return Path(tempfile.mkdtemp(prefix=f'{stamp}-{suffix}-', dir=parent))
 
 
+def torch_requirement(engine: str, source: Path) -> str:
+    if engine == 'vllm':
+        text = (source / 'requirements/build/cuda.txt').read_text()
+        requirements = [line.strip().split('#')[0].strip() for line in text.splitlines()]
+    else:
+        path = source / ('python/pyproject.toml' if engine == 'sglang' else 'pyproject.toml')
+        requirements = tomllib.loads(path.read_text())['build-system']['requires']
+    matches = [item for item in requirements if re.match(r'^torch(?=[<>=!~ ;]|$)', item)]
+    if len(matches) != 1:
+        raise WorkflowError(f'{engine} 的上游 torch 构建要求不唯一；需核对新版布局。')
+    return matches[0]
+
+
 def build_plan(engine: str, directory: Path, home: Path, jobs: int, offline: bool,
-               package_index: str | None = None) -> dict:
+               package_index: str | None = None, revision: str | None = None,
+               torch_spec: str | None = None) -> dict:
     source = directory / engine / 'source'
     environment = directory / engine / 'venv'
     python = environment / 'bin/python'
+    torch_spec = torch_spec or 'torch==' + SOURCES[engine]['torch']
     package_index = package_index or default_package_index(Path(__file__).resolve().parents[1])
     # Child commands run inside upstream clones, whose uv configuration may
     # differ from the parent workspace. Pass the parent's default explicitly.
@@ -243,7 +262,7 @@ def build_plan(engine: str, directory: Path, home: Path, jobs: int, offline: boo
     commands = [('venv', venv_args)]
     if engine == 'sglang':
         commands += [
-            ('build-deps', uv + ['torch==2.14.1', 'scikit-build-core>=0.10', 'cmake>=3.26.1',
+            ('build-deps', uv + [torch_spec, 'scikit-build-core>=0.10', 'cmake>=3.26.1',
                                   'ninja', 'wheel', 'setuptools>=61', 'setuptools-rust>=1.11', 'setuptools-scm>=8']),
             ('kernel-source-build', uv + ['--no-build-isolation-package', 'sglang-kernel',
                                           str(source / 'python/sglang/kernels/aot')]),
@@ -263,42 +282,40 @@ def build_plan(engine: str, directory: Path, home: Path, jobs: int, offline: boo
                     'TORCH_EXTENSIONS_DIR': str(directory / engine / 'torch-extensions'),
                     'TRITON_CACHE_DIR': str(directory / engine / 'triton-cache')})
         commands += [
-            ('build-deps', uv + ['torch==2.14.1', 'setuptools>=77', 'wheel', 'ninja']),
+            ('build-deps', uv + [torch_spec, 'setuptools>=77', 'wheel', 'ninja']),
             ('framework-source-build', uv + ['--no-build-isolation-package', 'freetoken', '--editable', str(source) + '[accel]']),
-            ('kernel-source-build', [str(python), str(directory / 'build-freetoken-kernels.py'),
+            ('kernel-source-build', [str(python), '-I', str(directory / 'build-freetoken-kernels.py'),
                                      str(cache), str(directory / engine / 'kernel-build'),
                                      str(directory / engine / 'kernel-build.json')]),
         ]
     else:
         raise WorkflowError(f'未知原生框架：{engine}')
     commands += [('freeze', ['uv', 'pip', 'freeze', '--python', str(python)]),
-                 ('cuda-import-probe', [str(python), str(directory / 'probe.py'), engine,
-                                       str(source), str(directory / engine / 'provenance.json')])]
+                 ('cuda-import-probe', [str(python), '-I', str(directory / 'probe.py'), engine,
+                                       str(source), str(directory / engine / 'provenance.json'), torch_spec])]
     command_records = [{'label': label, 'argv': argv} for label, argv in commands]
     if engine == 'sglang':
         for command in command_records:
             if command['label'] == 'kernel-source-build':
                 command['environment'] = {'SKBUILD_CMAKE_DEFINE': 'SGL_KERNEL_COMPILE_THREADS=1',
                                           'SKBUILD_BUILD_DIR': str(directory / engine / 'kernel-build-cache')}
-    return {'commit': SOURCES[engine]['commit'], 'source': str(source), 'package_default_index': package_index,
+    return {'commit': revision or SOURCES[engine]['commit'], 'source': str(source),
+            'torch_requirement': torch_spec, 'package_default_index': package_index,
             'python': str(python), 'environment': env,
             'commands': command_records}
 
 
 def manifest_base(root: Path, directory: Path, args, engines: set[str]) -> dict:
     home = cuda_home(args.cuda_home) or Path('/usr/local/cuda')
-    for engine in engines & SOURCES.keys():
-        # A newly added submodule is usable before its first parent commit;
-        # record the staged gitlink rather than substituting a floating ref.
-        ref = f':sources/{engine}' if engine == 'freetoken' else f'HEAD:sources/{engine}'
-        pin = _git(root, 'rev-parse', ref)
-        if pin != SOURCES[engine]['commit']:
-            raise WorkflowError(f'{engine} gitlink 已变化；请先核对依赖与构建布局，再更新 native_prepare.SOURCES。')
+    revisions = {engine: source_revision(root, engine, _git) for engine in engines & SOURCES.keys()}
     models = {engine: model_configuration(root, engine, args) for engine in sorted(engines & SOURCES.keys())}
     primary = next(iter(models.values())) if models else model_configuration(root, 'sglang')
     model = primary['profile']
     package_index = default_package_index(root)
-    plans = {engine: build_plan(engine, directory, home, args.jobs, args.offline, package_index)
+    plans = {engine: build_plan(engine, directory, home, args.jobs, args.offline, package_index,
+                               revisions[engine][0],
+                               torch_requirement(engine, root / 'sources' / engine)
+                               if (root / 'sources' / engine / '.git').exists() else None)
              for engine in sorted(engines & SOURCES.keys())}
     return {'schema_version': 1, 'preparation_id': 'native-cuda', 'run_id': directory.name,
             'parent_commit': _git(root, 'rev-parse', 'HEAD'), 'started_at': datetime.now(timezone.utc).isoformat(),
@@ -306,8 +323,7 @@ def manifest_base(root: Path, directory: Path, args, engines: set[str]) -> dict:
             'cuda_home': str(home), 'build_timeout_seconds': args.build_timeout,
             'package_default_index': package_index, 'torch_backend': TORCH_BACKEND,
             'plans': plans, 'frameworks': {}, 'gpu_inference_validated': False,
-            'source_pin_refs': {engine: (f':sources/{engine}' if engine == 'freetoken' else f'HEAD:sources/{engine}')
-                                for engine in plans},
+            'source_pin_refs': {engine: revisions[engine][1] for engine in plans},
             'model_download_requested': False, 'model_id': model['model_id'],
             'model_revision': model['revision'], 'model_dir': primary['path'], 'models': models,
             'model_weight_bytes': model['weight_bytes'],
@@ -318,8 +334,10 @@ def manifest_base(root: Path, directory: Path, args, engines: set[str]) -> dict:
             'inherited_build_environment': {name: os.environ[name] for name in
                 ('CC', 'CXX', 'CUDAHOSTCXX', 'CFLAGS', 'CXXFLAGS', 'LDFLAGS',
                  'CMAKE_ARGS', 'CMAKE_PREFIX_PATH', 'LD_LIBRARY_PATH') if name in os.environ},
-            'legacy_p0_plan': 'prepare_p0: 固定 GGUF、ds4 两版本、llama.cpp、CUDA probe、scorer、DSpark support'
-                               if engines & {'ds4', 'llama'} else None}
+            'legacy_p0_plan': (('prepare_p0 --frozen-p0: 固定 GGUF、历史 ds4 两版本、llama.cpp、CUDA probe、scorer、DSpark support'
+                                if args.frozen_p0 else
+                                'prepare_p0: 固定 GGUF、当前 ds4/llama.cpp、CUDA probe；不下载 support，不构建历史 scorer')
+                               if engines & {'ds4', 'llama'} else None)}
 
 
 def prepare_plan(root: Path, args, engines: set[str]) -> tuple[Path, int]:
@@ -430,6 +448,8 @@ def _prepare_native(root: Path, args, engines: set[str], started: float | None =
                 step('remote', ['git', '-C', str(source), 'remote', 'add', 'origin', SOURCES[engine]['url']])
                 step('fetch', ['git', '-C', str(source), 'fetch', '--depth=1', 'origin', plan['commit']])
             step('checkout', ['git', '-C', str(source), 'checkout', '--detach', plan['commit']])
+            if torch_requirement(engine, source) != plan['torch_requirement']:
+                raise WorkflowError(f'{engine} torch 要求与计划不一致；初始化本地子模块后重新生成计划。')
             git = ['git', '-C', str(source)]
             if args.offline:
                 git += ['-c', 'protocol.allow=never', '-c', 'protocol.file.allow=always']

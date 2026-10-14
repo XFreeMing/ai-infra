@@ -1,18 +1,24 @@
 [submodule "sources/vllm"]
 	path = sources/vllm
 	url = https://github.com/vllm-project/vllm.git
+	branch = main
 [submodule "sources/sglang"]
 	path = sources/sglang
 	url = https://github.com/sgl-project/sglang.git
+	branch = main
 [submodule "sources/llama.cpp"]
 	path = sources/llama.cpp
 	url = https://github.com/ggml-org/llama.cpp.git
+	branch = master
 [submodule "sources/ds4"]
 	path = sources/ds4
 	url = https://github.com/antirez/ds4.git
+	branch = main
 [submodule "sources/llama2.c"]
 	path = sources/llama2.c
 	url = https://github.com/karpathy/llama2.c.git
+	branch = master
 [submodule "sources/freetoken"]
 	path = sources/freetoken
 	url = https://github.com/FlashML-org/FreeToken.git
+	branch = main

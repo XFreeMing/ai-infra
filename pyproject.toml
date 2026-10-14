@@ -1,5 +1,5 @@
 [project]
-name = "ai-infra"
+name = "lab_tools"
 version = "0.1.0"
 description = "A reproducible AI infrastructure research workspace for Mac study and PGX experiments"
 readme = "README.md"
@@ -7,6 +7,7 @@ requires-python = ">=3.12"
 dependencies = []
 
 [project.scripts]
+lab_tools = "lab_tools.cli:main"
 init = "lab_tools.cli:init_main"
 ds4 = "lab_tools.serve_ds4:main"
 llama = "lab_tools.serve_llama:main"

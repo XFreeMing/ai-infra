@@ -17,7 +17,7 @@
 
 需要 Git、Python 3.12+。可以使用已有 Python，也可以使用 uv 管理的环境；工作台本身没有第三方 Python 运行依赖。
 
-本项目的 Python 工具集中在 [`lab_tools/`](lab_tools/)，负责环境准备、实验记录和服务启动。
+本项目的 Python 包、CLI 与工具目录统一为 `lab_tools`，负责环境准备、实验记录和服务启动。使用 `uv run lab_tools doctor` 检查本地环境；原 `main.py` 入口和各服务命令仍可使用。
 
 uv 默认 PyPI index 已配置为清华 TUNA：`https://pypi.tuna.tsinghua.edu.cn/simple`，设置位于 [pyproject.toml](pyproject.toml)。`init` 在独立上游 clone 中执行的依赖安装也显式传入此默认源，启动计划和日志会显示 `--default-index`；需要换源时修改项目配置中的 default index。手动 ModelScope 下载脚本的独立 uv 环境也配置了同一镜像。PyTorch CUDA 包仍通过 `--torch-backend cu130` 选择官方 CUDA 专用源，其大型 wheel 不保证由这个 PyPI 镜像加速。此配置影响 Python 包安装，模型权重仍由原来的手动下载脚本处理。[TUNA 官方说明](https://mirrors.tuna.tsinghua.edu.cn/help/pypi/)、[uv 脚本 index 配置](https://docs.astral.sh/uv/guides/scripts/#using-alternative-package-indexes)
 
@@ -58,31 +58,51 @@ git submodule update --init --recursive sources/vllm
 uv run init
 ```
 
-优先复用 `/data/models` 中完整的 Flash 0731 Q2 GGUF，校验冻结的大小、含对齐 padding 的 GGUF header 与全文件 SHA256；不下载另一份主权重，不选择 `.incomplete` 或其他模型替代同文件比较。然后初始化固定版本的 ds4/llama.cpp、准备 R2 的 DSpark support、小型 CUDA kernel 探针，并串行构建两个 ds4 版本、llama.cpp 与质量 scorer。只需 Python 标准库；`uv` 用 setuptools 安装本项目的命令入口。
+优先复用 `/data/models` 中完整的 Flash 0731 Q2 GGUF，校验固定模型身份与全文件 SHA256。默认构建当前 ds4/llama.cpp 源码和小型 CUDA kernel 探针，不下载模型或 DSpark support。使用 `--frozen-p0` 才重现 R0_MODEL 的历史源码、两个 ds4 版本、质量 scorer 和 R2 support；这些对照结果须与最新源码分开记录。工具使用 Python 标准库，`uv` 用 setuptools 安装命令入口。
 
-每次准备生成独立的 `artifacts/init/<run-id>/`，保存输入原始字节、环境、完整命令、构建日志、二进制 hash 与 `ldd` 路径。源子模块保持固定提交，旧版 ds4 在单独 clone 构建。模型权重不复制进构建目录；缺少的 support 下载到被 Git 忽略的 `artifacts/models/<HF-revision>/`。
+每次准备生成独立的 `artifacts/init/<run-id>/`，保存输入原始字节、环境、完整命令、构建日志、二进制 hash 与 `ldd` 路径。源子模块跟踪 main/master，每次构建 clone 到独立目录并冻结实际 commit；已运行的构建保持原快照。模型权重不复制进构建目录；历史 P0 所需 support 只在 `--frozen-p0` 模式准备。
 
 `init` 默认显示每步的用途、完整命令、工作目录、超时设置和日志绝对路径。下载/编译的 stdout 与 stderr 实时显示，同时保存完整原始日志；Python 子进程启用无缓冲输出。步骤运行期间每 20 秒显示耗时、距上次新增输出的时间和「不限时」；设置有限超时时则显示剩余预算。结束时显示状态、耗时和退出码。例如 `freetoken-build-deps` 会明确说明正在安装 PyTorch/CUDA 构建依赖，不下载模型权重，并显示上游工具报告的 `Downloading` / `Downloaded` 信息。下载百分比与速度以工具实际输出为准。
 
 ```sh
+uv run init --update-sources              # 同步所有 main/master，再构建当前 ds4/llama
+uv run init --frozen-p0                   # 重现固定版本 P0/R2 和 scorer
 uv run init --check-only                  # 只盘点；退出码 2，表示还未准备完
 uv run init --models-dir /data/models --cuda-home /usr/local/cuda --jobs 4
 uv run --offline init --offline           # uv 与 init 分别禁止联网
 uv run --offline python main.py init      # 原入口仍可用
-uv run init --resume artifacts/init/<run-id>  # 恢复未完成的准备，保留历史日志
+uv run init --resume artifacts/init/<run-id>  # 恢复当前源码准备，保留历史日志
+uv run init --frozen-p0 --resume artifacts/init/<p0-run-id> # 恢复历史 P0
 ```
 
 初始化的依赖安装、源码获取、构建与 DSpark support 下载默认不限时，持续等待完成；可随时用 Ctrl+C 中断并保留日志。`--build-timeout 0` / `--download-timeout 0` 也表示不限时；需要有限预算时可显式设置秒数，例如 `--build-timeout 7200`。不限时不会忽略安装/编译错误，失败仍保存 `blockers` 并返回 2。已有本地模型仍需完整读取约 81 GiB 以计算 SHA256；support 下载支持续传。首次 `uv` 安装需要已有 setuptools 缓存或网络。不会自动修改系统驱动、安装系统包、清空 swap 或停止其他进程。
 
 `prepared`/退出码 0 仅表示前置准备完成。实际 token 对齐、两个引擎加载同一模型、32-token 短生成、质量检查及 R2 的 rewind 触发仍需按 [R0.md](research/studies/ds4-inference/R0.md) 执行；CUDA 小探针不等于模型兼容性或性能验证。长实验先提交工作台改动，在独立且干净的主仓库 clone 中重新准备。
 
-固定版本的 [`score_llama.cpp:187`](https://github.com/antirez/ds4/blob/fc80bd695da76ee14bcb86820bf900a5cdfda806/gguf-tools/quality-testing/score_llama.cpp#L187) 使用旧 API `use_mmap=true`；固定 llama.cpp 已改为 [`load_mode`](https://github.com/ggml-org/llama.cpp/blob/972b5fcc19670e597f8de9bf5cacfb85752a5fff/include/llama.h#L329)。`init` 对 scorer 的固定源码 hash 做检查，在产物目录生成仅替换为 `LLAMA_LOAD_MODE_MMAP` 的副本，用锁定的 llama.cpp 头文件和库编译；manifest 保存原始/适配源码与 patch 的 hash。评分和分词代码保持原样，质量正确性仍需 P7 验证。
+`--frozen-p0` 使用的 [`score_llama.cpp:187`](https://github.com/antirez/ds4/blob/fc80bd695da76ee14bcb86820bf900a5cdfda806/gguf-tools/quality-testing/score_llama.cpp#L187) 使用旧 API `use_mmap=true`；固定 llama.cpp 已改为 [`load_mode`](https://github.com/ggml-org/llama.cpp/blob/972b5fcc19670e597f8de9bf5cacfb85752a5fff/include/llama.h#L329)。`init --frozen-p0` 对 scorer 的固定源码 hash 做检查，在产物目录生成仅替换为 `LLAMA_LOAD_MODE_MMAP` 的副本，用锁定的 llama.cpp 头文件和库编译；manifest 保存原始/适配源码与 patch 的 hash。评分和分词代码保持原样，质量正确性仍需 P7 验证。
 
-ds4/llama P0 的 `--resume` 只接受 `blocked`/`interrupted` 目录；复用前检查源码提交、clean 状态和二进制 hash，完整模型仍重新校验。已就绪的准备目录不允许恢复，避免改动可能用于运行的产物。P0 未完成的引擎构建保留原目录，需新建准备；scorer 或下载失败可直接恢复。SGLang/vLLM/FreeToken 的源码构建可在原目录续跑，命令见下方原生框架说明。
+ds4/llama 的 `--resume` 只接受 `blocked`/`interrupted` 目录；复用前检查源码提交、clean 状态和二进制 hash，完整模型仍重新校验。已就绪的准备目录不允许恢复，避免改动可能用于运行的产物。未完成的 ds4/llama 引擎构建保留原目录，需新建准备；scorer 或下载失败可直接恢复。SGLang/vLLM/FreeToken 的源码构建可在原目录续跑，命令见下方原生框架说明。
+
+所有 submodule 的分支在 `.gitmodules` 中配置：ds4、SGLang、vLLM、FreeToken 为 `main`，llama.cpp、llama2.c 为 `master`。`uv run init --update-sources` 会检查本地修改、fetch 并仅快进更新，不覆盖修改；更新操作不能与 `--offline`、`--dry-run`、`--check-only`、`--resume` 合用。普通 `init` 使用已有源码快照，避免每次构建或恢复都改变版本；`--resume` 要求原 commit 一致。llama2.c 作为阅读/独立实验子模块保留，没有新增服务 init。
+
+当前支持的初始化选择：
+
+```sh
+uv run init                              # 当前 ds4 + llama.cpp
+uv run init --engines ds4                 # 成套准备 ds4 + llama.cpp
+uv run init --engines llama               # 成套准备 ds4 + llama.cpp
+uv run init --engines sglang
+uv run init --engines vllm
+uv run init --engines freetoken
+uv run init --engines sglang vllm freetoken
+uv run init --engines all
+uv run init --frozen-p0                   # 历史 P0/R2/scorer
+uv run init --update-sources --engines all # 更新所有源码，再初始化
+```
 
 ## 启动 ds4 / llama.cpp 服务
 
-完成 `uv run init` 后，在项目目录启动其中一个服务：
+完成 `uv run init` 后，在项目目录启动其中一个服务。默认选择匹配当前源码 commit 的构建；重现 `--frozen-p0` 时，在服务脚本顶部的 `PREPARATION_DIR` 显式指定对应历史准备目录：
 
 ```sh
 uv run ds4                 # 0.0.0.0:1111，显式 --cuda
@@ -131,7 +151,8 @@ uv run init --engines sglang vllm --jobs 4
 # 失败后复用源码和 venv，并保留旧 manifest 与日志：
 uv run init --engines sglang --resume artifacts/init/<sglang-run-id> --jobs 4
 uv run init --engines vllm --resume artifacts/init/<vllm-run-id> --jobs 4
-# --engines all 包含 ds4/llama P0、SGLang、vLLM 和 FreeToken。
+# --engines all 包含当前 ds4/llama、SGLang、vLLM 和 FreeToken。
+uv run init --update-sources --engines all --jobs 4
 
 # 唯一主动下载新模型的入口；由用户手动运行：
 uv run scripts/download_deepseek_v41_flash_nvfp4.py
@@ -149,9 +170,9 @@ uv run vllm 5555
 
 模型、context、TP、GPU 可见列表和批处理参数位于 [serve_sglang.py](lab_tools/serve_sglang.py) / [serve_vllm.py](lab_tools/serve_vllm.py) 顶部。默认 host `0.0.0.0`、context `4096`、TP=1、单并发、`CUDA_VISIBLE_DEVICES=0`；模型配置上限为 1,048,576。`QUANTIZATION=None` 让框架读取混合精度配置，避免错误地将全部层当普通 FP8 或 NVFP4。两端 reasoning/tokenizer/parser 名称按各自源码和模型卡设置。临时追加上游参数用 `--`，例如 `uv run vllm -- --max-model-len 8192`。
 
-`init` 保持默认 ds4/llama P0 行为；选择原生框架后，各自从固定 gitlink clone 到新的 `artifacts/init/<run-id>/<engine>/source`，在各自的 `venv` 安装依赖并构建 CUDA 扩展。SGLang 固定源码要求 torch 2.14.1，vLLM 要求 torch 2.13.0，两套环境分别安装 CUDA 13.0 PyTorch wheel，用本机 CUDA toolkit 与 sm_121a 构建。SGLang 从当前源码的 `python/sglang/kernels/aot` 构建 sglang-kernel，再安装 editable Python package；HTTP 服务配置关闭可选 Rust 扩展。vLLM 使用 `requirements/build/cuda.txt` 及 editable 源码构建，关闭预编译扩展选择。构建可能需要下载依赖和子模块；`--offline` 禁止这些网络来源，缺项保存为 blocked。
+`init` 默认构建当前 ds4/llama；选择原生框架后，各自从当前干净子模块 checkout（未初始化时使用 index gitlink）clone 到新的 `artifacts/init/<run-id>/<engine>/source`，在各自的 `venv` 安装依赖并构建 CUDA 扩展。初始化读取实际源码的 build-system / requirements/build/cuda.txt 获取 torch 要求；2026-10-14 main 分别要求 SGLang torch 2.14.1、vLLM torch 2.13.0，两套环境分别安装 CUDA 13.0 PyTorch wheel，用本机 CUDA toolkit 与 sm_121a 构建。SGLang 从当前源码的 `python/sglang/kernels/aot` 构建 sglang-kernel，再安装 editable Python package；HTTP 服务配置关闭可选 Rust 扩展。vLLM 使用 `requirements/build/cuda.txt` 及 editable 源码构建，关闭预编译扩展选择。构建可能需要下载依赖和子模块；`--offline` 禁止这些网络来源，缺项保存为 blocked。
 
-准备流程保存预算、源码/子模块 commit、安装日志、freeze、实际 import path、torch CUDA 版本、CUDA tensor smoke 和扩展 SHA256；框架 `prepared` 不要求模型已下载，也不代表模型推理通过。启动入口选择匹配当前 gitlink 的环境，校验扩展身份、本地 config/index/分片，并再次检查 CUDA/import path。设置 `HF_HUB_OFFLINE=1`、`TRANSFORMERS_OFFLINE=1`，不通过在线 repo ID 隐式下载权重。启动记录仍写入 `artifacts/servers/<launch-id>/launch.json`。`PYTHON_EXECUTABLE` 可指定自己的 **venv/bin/python 路径**，`PREPARATION_DIR` 可固定准备目录；`--server-help` 只查看已安装上游帮助。
+准备流程保存预算、源码/子模块 commit、安装日志、freeze、实际 import path、torch CUDA 版本、CUDA tensor smoke 和扩展 SHA256；框架 `prepared` 不要求模型已下载，也不代表模型推理通过。启动入口选择匹配当前干净子模块 commit 的环境，校验扩展身份、本地 config/index/分片，并再次检查 CUDA/import path。设置 `HF_HUB_OFFLINE=1`、`TRANSFORMERS_OFFLINE=1`，不通过在线 repo ID 隐式下载权重。启动记录仍写入 `artifacts/servers/<launch-id>/launch.json`。`PYTHON_EXECUTABLE` 可指定自己的 **venv/bin/python 路径**，`PREPARATION_DIR` 可固定准备目录；`--server-help` 只查看已安装上游帮助。
 
 初版交付只准备脚本并执行工具测试/命令预览。2026-10-14 已开始实际初始化失败恢复，排查日志和已执行检查见 [初始化恢复记录](research/studies/ds4-inference/NATIVE_SERVING.md)；完整准备结果以 run 的 manifest 为准。此模型未下载，也未执行其推理，V4.1 NVFP4 在 sm_121 上的完整 kernel 支持仍待验证。
 
@@ -175,7 +196,7 @@ uv run freetoken --server-help                 # 已安装环境中的 ft serve 
 uv run freetoken                               # 默认 0.0.0.0:6666，前台运行
 ```
 
-[serve_freetoken.py](lab_tools/serve_freetoken.py) 顶部设置模型目录、CUDA 可见设备、host/port、context、dtype、MoE 策略和 kernel cache。默认 context `4096`（本地模型上限 262144），prefill chunk 4096，单并发，输出预算 512，memory ratio 0.80，text-only、reasoning off；需要图像输入时自行调整 `TEXT_MODEL_ONLY`。临时参数放在 `--` 后，例如 `uv run freetoken -- --max-seq-len-override 8192`。
+[serve_freetoken.py](lab_tools/serve_freetoken.py) 顶部设置模型目录、CUDA 可见设备、host/port、context、dtype、MoE 策略和 kernel cache。默认 context `65536`（本地模型上限 262144），KV cache 显式设置为 65536 pages（page_size=1），prefill chunk 4096，单并发，输出预算 512，memory ratio 0.80，text-only、reasoning off；需要图像输入时自行调整 `TEXT_MODEL_ONLY`。临时参数放在 `--` 后，例如 `uv run freetoken -- --max-seq-len-override 8192`。
 
 `init --engines freetoken` 不下载模型。它从固定子模块 clone 到独立准备目录，创建专用 venv，安装 torch 2.14.1/CUDA 13.0 wheel 与上游 `[accel]` 依赖，再从源码构建 `_pinned_tensor`、`_cpu_moe`、`_row_store`。调用上游 `compile_and_package_kernels`，将其默认 AOT spec 集构建到准备目录的独立 kernel cache，设置 `TVM_FFI_CUDA_ARCH_LIST=12.1`；源码保持原样，不使用 x86_64 nightly wheel。每个 spec 顺序构建，内部编译并行度由 `--jobs` 控制。最后校验实际 import path、CUDA Tensor、FreeToken 自有 GPU store kernel 输出，以及扩展/cache 文件的 SHA256。
 

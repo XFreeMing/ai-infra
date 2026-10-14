@@ -309,7 +309,7 @@ def run_experiment(root: Path, slug: str, output_dir: Path) -> tuple[Path, int]:
 
 def main(argv: list[str] | None = None, *, root: Path | None = None) -> int:
     root = (root or Path(__file__).resolve().parents[1]).resolve()
-    parser = argparse.ArgumentParser(prog="ai-infra", description="Local AI Infra research and experiment helpers.")
+    parser = argparse.ArgumentParser(prog="lab_tools", description="Local AI Infra research and experiment helpers.")
     commands = parser.add_subparsers(dest="action", required=True)
     commands.add_parser("doctor", help="Report local tools, platform and pinned source versions.")
     from lab_tools.prepare import add_init_arguments, prepare

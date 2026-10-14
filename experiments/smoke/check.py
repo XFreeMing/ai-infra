@@ -7,7 +7,7 @@ from pathlib import Path
 import platform
 
 
-payload = b"ai-infra recording smoke check\n"
+payload = b"lab_tools recording smoke check\n"
 result = {
     "check": "recording-smoke",
     "python_version": platform.python_version(),

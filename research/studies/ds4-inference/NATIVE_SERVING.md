@@ -35,8 +35,35 @@ SGLang 的 `12-sglang-kernel-source-build.log` 已成功安装本地 `sglang-ker
 
 SGLang 自有 AOT RMSNorm CUDA kernel 另已实际执行并通过：`torch.ops.sgl_kernel.rmsnorm.default`，4×128 BF16 输入、固定 seed 7、eps=1e-6、PDL 关闭，与 FP32 Torch 参考计算转回 BF16 比较（rtol=0.02、atol=0.01），最大绝对误差 0.0。Torch 为 `2.14.1+cu130`，sglang-kernel 为 0.4.9，实际 import 来自该失败目录的 venv。命令、预算 60 秒、环境和原始输出见 `artifacts/build-deps/sglang-kernel-cuda-probe/00-native-rmsnorm-cuda.log` 及 manifest；没有加载模型或测量吞吐。API 来源为固定 [elementwise.py::_rmsnorm_internal](https://github.com/sgl-project/sglang/blob/f006fb49ecd93322802ddebff80821f8e6296893/python/sglang/kernels/aot/python/sgl_kernel/elementwise.py#L16)。
 
+## 2026-10-14 跟踪社区 main/master
+
+用户选择更新全部子模块并使用最新源码初始化。Git 远端实查和本机 checkout：
+
+| 子模块 | 分支 | 本次 commit |
+| --- | --- | --- |
+| ds4 | main | `fc80bd695da76ee14bcb86820bf900a5cdfda806` |
+| llama.cpp | master | `fcac19079f3f2985fe74ed845f0880e7e9a8030a` |
+| llama2.c | master | `350e04fe35433e6d2941dce5a1f53308f87058eb` |
+| SGLang | main | `684fea8af3b11a5b51ec9966c02959a32ad3421c` |
+| vLLM | main | `d5e62627a3ece4b2d045cbb2b22ac26c061c8313` |
+| FreeToken | main | `9c635a157798da4aa43e6d051e92620521ed1858` |
+
+`.gitmodules` 配置跟踪分支。`uv run init --update-sources` 在更新前检查所有子模块是否干净，逐个 fetch、switch 并仅快进；普通 init 使用当前干净 checkout，未初始化时采用 index gitlink。每次构建仍在独立目录冻结实际 commit，旧构建和日志保持原样。llama.cpp 原 master 的浅克隆历史不能直接快进，本机旧分支已保存为 `codex/archive-master-before-latest-20261014`，当前 master 跟踪远端最新提交。
+
+脚本调整：移除 native 对硬编码源码 commit 的拒绝，读取实际上游 torch 构建约束。依据 SGLang [python/pyproject.toml build-system](https://github.com/sgl-project/sglang/blob/684fea8af3b11a5b51ec9966c02959a32ad3421c/python/pyproject.toml)、vLLM [requirements/build/cuda.txt](https://github.com/vllm-project/vllm/blob/d5e62627a3ece4b2d045cbb2b22ac26c061c8313/requirements/build/cuda.txt)、FreeToken [pyproject.toml](https://github.com/FlashML-org/FreeToken/blob/9c635a157798da4aa43e6d051e92620521ed1858/pyproject.toml)，本次分别为 `torch==2.14.1`、`torch==2.13.0`、`torch>=2.14,<2.15`。CUDA wheel 来源仍为官方 cu130，扩展用本机 CUDA toolkit 构建；如果上游更改 build 布局或 CUDA wheel 支持，需要进一步适配，跟踪 main 不能保证未来版本兼容。
+
+默认 ds4/llama init 改为当前版本，省略历史 R2 旧版、scorer 和 support 下载；`--frozen-p0` 在独立 clone 重现 R0_MODEL 锁定版本，避免将新版结果写成历史对照结果。native 启动入口按照实际当前 commit 选择环境；Python 命令使用 `-I`，避免准备目录下的 `sglang/`、`vllm/` namespace 路径抢在 editable finder 前，导致 `module.__file__=None`。vLLM 本次构建目标为 [setup.py 的 `_C_stable_libtorch`](https://github.com/vllm-project/vllm/blob/d5e62627a3ece4b2d045cbb2b22ac26c061c8313/setup.py)，探针已按真实扩展名调整。
+
+本机执行：旧 vLLM `2534a96f` 完整源码安装已通过（3112.9 秒），修正后的实际 CUDA/import 检查见 `artifacts/init/20261013T090239Z-native-cuda-7r7lp7fq/vllm/provenance-fixed.json`；此结果属于旧版本。切换最新 main 时中断 `20261014T012152Z-native-cuda-0a4t0_pk`，保留 interrupted 清单。最新两框架串行初始化目录为 `artifacts/init/20261014T013747Z-native-cuda-c0q5q_79`，结果以该目录 manifest.json 为准。
+
+最新 SGLang 初始化已通过：kernel 源码构建 1092.3 秒、framework 安装 542.5 秒、CUDA/import probe 10.0 秒；实际 source import 位于本次 clone，Torch 为 `2.14.1+cu130`，GB10 capability `[12,1]`，CUDA Tensor 结果 28。`uv run sglang --server-help` 退出 0。额外 RMSNorm CUDA 检查（4×128 BF16、seed 7、eps=1e-6、rtol=0.02、atol=0.01）最大绝对误差 0.0；证据为 `artifacts/init/20261014T022351Z-native-kernel-check-ax8y5nco`。
+
+最新 vLLM 的实际 CMakeCache 路径已确认为本次 `vllm/build-cache`，使用 `/usr/local/cuda-13.4/bin/nvcc` 和 CUDA target；本次完整 vLLM 源码构建成功，耗时 2925.2 秒；实际 DeepGEMM 为 `6ce1c5ec6627a6bf11dbcc698b0b1e19c9248432`，`build-cache/deepgemm_C/.built` 已生成，原缺头文件问题在新版本完整构建中通过。CUDA/import probe 耗时 5.2 秒，Torch 为 `2.13.0+cu130`，实际 import 来自本次 source，GB10 capability `[12,1]`，CUDA Tensor 结果 28。额外原生 RMSNorm CUDA 检查的最大绝对误差同样为 0.0，见相同 kernel-check 目录的 `vllm-result.json`；`uv run vllm --server-help` 退出 0。两框架共用初始化 manifest 状态为 `prepared`，扩展 SHA256 已记录。
+
+工具侧 92 项 unittest 通过，日志 `artifacts/build-deps/current-source-tests.log`；doctor 结果见 `artifacts/build-deps/current-source-doctor.json`。这些工具测试没有执行模型推理。
+
 已理解：V4.1 NVFP4 和 P0 的 Flash 0731 Q2 GGUF 是不同 checkpoint/格式，必须分开记录；两框架有独立依赖和实际执行路径，脚本只在用户显式下载入口下载权重。原初始化的两个失败分别来自缓存锁等待和缺少开发头文件。
 
-未解决：完整框架初始化及 CUDA/import probe 仍待恢复流程完成；sm_121 NVFP4 的全部模型 kernel 和实际加载/输出正确性尚未验证，模型卡的 GB300 测试不能替代 GB10 观测。
+未解决：本次未重新构建 FreeToken 或当前 ds4/llama.cpp；对应脚本做了源码要求核对和工具测试。sm_121 NVFP4 的全部模型 kernel 与实际模型加载/输出正确性尚未验证，模型卡的 GB300 测试不能替代 GB10 观测。
 
-下一步：完成本次串行恢复，检查最新 manifest 状态、CUDA/import provenance 与扩展 SHA256；按实际硬件容量决定模型执行环境，手动下载并校验权重，最后串行执行 32-token smoke，保存失败与实际 GPU kernel 日志。
+下一步：更新社区源码时执行 `uv run init --update-sources --engines <所需引擎>` 并新建固定构建；按实际硬件容量决定模型执行环境，手动准备完整权重，最后串行执行 32-token smoke，保存失败与实际 GPU kernel 日志。历史 P0 对照使用 `--frozen-p0` 及对应 PREPARATION_DIR。

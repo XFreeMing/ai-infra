@@ -18,7 +18,7 @@ from lab_tools import cli
 
 class WorkflowTests(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(prefix="ai-infra-test-")
+        self.temporary = tempfile.TemporaryDirectory(prefix="lab_tools-test-")
         self.addCleanup(self.temporary.cleanup)
         self.base = Path(self.temporary.name).resolve()
         self.root = self.base / "project"

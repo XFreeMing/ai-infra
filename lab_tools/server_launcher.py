@@ -12,6 +12,7 @@ import tempfile
 
 from lab_tools.cli import WorkflowError, _git
 from lab_tools.prepare import fingerprint, sha256
+from lab_tools.source_tracking import source_revision
 
 
 def resolve_server(root: Path, engine: str, binary: Path | None,
@@ -19,6 +20,7 @@ def resolve_server(root: Path, engine: str, binary: Path | None,
     if binary is not None:
         return (root / binary).resolve(), None, None
     reference = json.loads((root / "research/studies/ds4-inference/R0_MODEL.json").read_text())
+    current = {name: source_revision(root, name, _git)[0] for name in ('ds4', 'llama.cpp')}
     candidates = [(root / preparation_dir).resolve()] if preparation_dir else sorted(
         (root / "artifacts/init").glob("*"), reverse=True)
     key, name = ("ds4-new", "ds4-server") if engine == "ds4" else ("llama", "llama-server")
@@ -30,8 +32,9 @@ def resolve_server(root: Path, engine: str, binary: Path | None,
         if manifest.get("status") != "prepared":
             continue
         builds = manifest.get("builds", {})
-        if builds.get("ds4-new", {}).get("commit") != reference["engines"]["ds4"] or \
-           builds.get("llama", {}).get("commit") != reference["engines"]["llama.cpp"]:
+        expected = reference['engines'] if preparation_dir and manifest.get('source_mode') != 'current-checkout' else current
+        if builds.get("ds4-new", {}).get("commit") != expected["ds4"] or \
+           builds.get("llama", {}).get("commit") != expected["llama.cpp"]:
             continue
         build = builds[key]
         record = next((item for item in build["binaries"] if Path(item["path"]).name == name), None)

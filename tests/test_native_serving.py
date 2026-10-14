@@ -7,16 +7,43 @@ import io
 import json
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
+import venv
 from unittest.mock import patch
 
 from lab_tools import native_launcher as launcher, native_model as model, native_prepare as prep
 from lab_tools import prepare, serve_sglang, serve_vllm, serve_freetoken, freetoken_model
 from lab_tools.cli import WorkflowError
+from lab_tools import source_tracking
 
 
 class NativeServingTests(unittest.TestCase):
+    def test_isolated_probe_avoids_preparation_directory_shadowing_editable_package(self):
+        environment = self.root / 'isolated-venv'
+        venv.EnvBuilder(with_pip=False, symlinks=True).create(environment)
+        site = environment / f'lib/python{sys.version_info.major}.{sys.version_info.minor}/site-packages'
+        package = self.root / 'source/fixture_engine'
+        package.mkdir(parents=True)
+        (package / '__init__.py').write_text('value = 42\n')
+        (site / 'fixture_finder.py').write_text(
+            'import importlib.abc, importlib.util, sys\n'
+            'class Finder(importlib.abc.MetaPathFinder):\n'
+            ' def find_spec(self, fullname, path=None, target=None):\n'
+            f'  if fullname == "fixture_engine": return importlib.util.spec_from_file_location(fullname, {str(package / "__init__.py")!r})\n'
+            'sys.meta_path.append(Finder())\n')
+        (site / 'fixture_editable.pth').write_text('import fixture_finder\n')
+        preparation = self.root / 'preparation'
+        (preparation / 'fixture_engine').mkdir(parents=True)
+        probe = preparation / 'probe.py'
+        probe.write_text(f'import fixture_engine\nassert fixture_engine.__file__ == {str(package / "__init__.py")!r}\n')
+        python = environment / 'bin/python'
+        plain = subprocess.run([str(python), str(probe)], capture_output=True, text=True)
+        isolated = subprocess.run([str(python), '-I', str(probe)], capture_output=True, text=True)
+        self.assertNotEqual(plain.returncode, 0)
+        self.assertEqual(isolated.returncode, 0, isolated.stderr)
+
     def test_cache_lock_failure_retries_but_compiler_failure_stops(self):
         recorder = prep.Recorder(self.root, self.root, {'commands': []})
         log = self.root / 'lock.log'
@@ -72,6 +99,8 @@ class NativeServingTests(unittest.TestCase):
         plan = manifest['plans']['sglang']
         source = Path(plan['source'])
         source.mkdir(parents=True)
+        (source / 'python').mkdir()
+        (source / 'python/pyproject.toml').write_text('[build-system]\nrequires = ["torch==2.14.1"]\n')
         python = Path(plan['python'])
         python.parent.mkdir(parents=True)
         python.write_text('fixture venv')
@@ -131,6 +160,55 @@ class NativeServingTests(unittest.TestCase):
         if args[-1].startswith(('HEAD:sources/', ':sources/')):
             return prep.SOURCES[args[-1].split('/')[-1]]['commit']
         return 'parent'
+
+    def test_updated_gitlink_is_snapshotted_without_a_hardcoded_commit_gate(self):
+        args = self.parser.parse_args(['--engines', 'sglang', '--dry-run'])
+        latest = 'f' * 40
+        with patch.object(prep, '_git', side_effect=lambda root, *a: latest if a[-1] == ':sources/sglang' else 'parent'):
+            manifest = prep.manifest_base(self.root, self.root / 'run', args, {'sglang'})
+        self.assertEqual(manifest['plans']['sglang']['commit'], latest)
+        self.assertEqual(manifest['source_pin_refs']['sglang'], ':sources/sglang')
+
+    def test_torch_requirement_comes_from_each_upstream_build_configuration(self):
+        source = self.root / 'upstream'
+        (source / 'python').mkdir(parents=True)
+        (source / 'requirements/build').mkdir(parents=True)
+        (source / 'python/pyproject.toml').write_text('[build-system]\nrequires=["wheel", "torch==2.15.2"]\n')
+        (source / 'pyproject.toml').write_text('[build-system]\nrequires=["torch>=2.15,<2.16", "setuptools"]\n')
+        (source / 'requirements/build/cuda.txt').write_text('# new upstream version\ntorch==2.15.1\nwheel\n')
+        for engine, expected in [('sglang','torch==2.15.2'), ('freetoken','torch>=2.15,<2.16'), ('vllm','torch==2.15.1')]:
+            self.assertEqual(prep.torch_requirement(engine, source), expected)
+        (source / 'requirements/build/cuda.txt').write_text('wheel\n')
+        with self.assertRaisesRegex(WorkflowError, '不唯一'):
+            prep.torch_requirement('vllm', source)
+
+    def test_branch_update_fast_forwards_and_refuses_local_edits(self):
+        def git(path, *argv):
+            return subprocess.run(['git', '-C', str(path), *argv], capture_output=True, text=True, check=True).stdout.strip()
+        upstream = self.root / 'remote'
+        upstream.mkdir()
+        git(upstream, 'init', '-b', 'main')
+        git(upstream, 'config', 'user.name', 'Fixture')
+        git(upstream, 'config', 'user.email', 'fixture@example.invalid')
+        (upstream / 'version').write_text('one')
+        git(upstream, 'add', '.')
+        git(upstream, 'commit', '-m', 'one')
+        git(self.root, 'init')
+        (self.root / '.gitmodules').write_text('[submodule "sources/fixture"]\npath = sources/fixture\nbranch = main\n')
+        local = self.root / 'sources/fixture'
+        subprocess.run(['git', 'clone', str(upstream), str(local)], capture_output=True, check=True)
+        (upstream / 'version').write_text('two')
+        git(upstream, 'commit', '-am', 'two')
+        with redirect_stdout(io.StringIO()):
+            source_tracking.update_sources(self.root)
+        self.assertEqual(git(local, 'rev-parse', 'HEAD'), git(upstream, 'rev-parse', 'HEAD'))
+        self.assertEqual(git(local, 'branch', '--show-current'), 'main')
+        (local / 'version').write_text('local edit')
+        before = git(local, 'rev-parse', 'HEAD')
+        with self.assertRaisesRegex(WorkflowError, '本地修改'):
+            source_tracking.update_sources(self.root)
+        self.assertEqual(git(local, 'rev-parse', 'HEAD'), before)
+        self.assertEqual((local / 'version').read_text(), 'local edit')
 
     def freetoken_fixture(self):
         self.config = {'model_type': 'qwen3_5_moe', 'architectures': ['Qwen3_5MoeForConditionalGeneration'],
@@ -218,7 +296,7 @@ class NativeServingTests(unittest.TestCase):
                                    argv=['6667', '--', '--model-path', str(self.directory)])
         self.assertEqual(code, 0)
         _, command, environment = execute.call_args.args
-        self.assertEqual(command[:4], ['/bin/true', '-m', 'freetoken.cli', 'serve'])
+        self.assertEqual(command[:5], ['/bin/true', '-I', '-m', 'freetoken.cli', 'serve'])
         self.assertIn('6667', command)
         self.assertEqual(environment['FREETOKEN_KERNEL_CACHE_DIR'], '/prepared/cache')
         self.assertEqual(environment['HF_HUB_OFFLINE'], '1')
@@ -234,7 +312,7 @@ class NativeServingTests(unittest.TestCase):
                                    python=None, preparation_dir=None, configuration_file=Path(__file__),
                                    root=self.root, argv=['--server-help'])
         self.assertEqual(code, 0)
-        self.assertEqual(command.call_args.args[0], ['/bin/true', '-m', 'freetoken.cli', 'serve', '--help'])
+        self.assertEqual(command.call_args.args[0], ['/bin/true', '-I', '-m', 'freetoken.cli', 'serve', '--help'])
 
     def test_freetoken_dry_run_uses_qwen_config_with_default_port(self):
         self.freetoken_fixture()

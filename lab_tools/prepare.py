@@ -19,6 +19,7 @@ import time
 import urllib.request
 
 from lab_tools.cli import WorkflowError, _git, _reject_hidden_changes, _stop_process_group, _write_manifest, doctor
+from lab_tools.source_tracking import source_revision
 
 STUDY = Path('research/studies/ds4-inference')
 OLD_DS4 = 'd6b516abb4a286a423fdb4071a19f86a3d9ab9c0'
@@ -67,6 +68,8 @@ def add_init_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument('--model', type=Path, help='P0：同一 R0 GGUF；FreeToken：本地 safetensors 模型目录（不下载）。')
     parser.add_argument('--cuda-home', type=Path, help='CUDA toolkit 根目录；默认探测 CUDA_HOME、PATH 和 /usr/local/cuda。')
     parser.add_argument('--jobs', type=positive_int, default=4)
+    parser.add_argument('--update-sources', action='store_true', help='先将所有干净 submodule 快进到 main/master，再冻结本次构建版本。')
+    parser.add_argument('--frozen-p0', action='store_true', help='ds4/llama 重现 R0_MODEL 中的历史 P0 对照、R2 旧版和 scorer。默认构建当前源码。')
     parser.add_argument('--build-timeout', type=optional_timeout, default=None,
                         help='构建墙钟预算（秒）；默认不限时，0 也表示不限时。')
     parser.add_argument('--download-timeout', type=optional_timeout, default=None,
@@ -269,22 +272,31 @@ def cuda_home(explicit: Path | None) -> Path | None:
     return path.resolve() if (path / 'bin/nvcc').is_file() else None
 
 
-def prepare_sources(root: Path, reference: dict, recorder: Recorder, offline: bool) -> dict:
+def prepare_sources(root: Path, reference: dict, recorder: Recorder, offline: bool,
+                    frozen: bool = True) -> dict:
     sources = {}
     for name, commit in reference['engines'].items():
         path = root / 'sources' / name
-        gitlink = _git(root, 'ls-files', '--stage', '--', f'sources/{name}')
-        if not gitlink.startswith(f'160000 {commit} '):
-            raise WorkflowError(f'sources/{name} gitlink 与 R0_MODEL 锁定版本不同。')
         if not (path / '.git').exists():
             if offline:
                 raise WorkflowError(f'离线模式缺少 sources/{name}；先初始化固定子模块。')
             recorder.require(f'init-{name.replace(".", "-")}',
                              ['git', 'submodule', 'update', '--init', '--depth', '1', '--', f'sources/{name}'], root)
         _reject_hidden_changes(path)
-        if _git(path, 'rev-parse', 'HEAD') != commit or _git(path, 'status', '--porcelain', '--untracked-files=all'):
-            raise WorkflowError(f'sources/{name} 必须干净且位于 {commit}；不会重置本地修改。')
+        if _git(path, 'status', '--porcelain', '--untracked-files=all'):
+            raise WorkflowError(f'sources/{name} 必须干净；不会重置本地修改。')
+        if frozen:
+            try:
+                _git(path, 'cat-file', '-e', commit + '^{commit}')
+            except WorkflowError:
+                if offline:
+                    raise WorkflowError(f'offline：缺少历史 {name} 提交 {commit}。')
+                recorder.require(f'fetch-frozen-{name}', ['git', 'fetch', '--depth', '1', 'origin', commit], path)
+        else:
+            commit, _ = source_revision(root, name, _git)
         sources[name] = {'path': str(path), 'commit': commit}
+    if not frozen:
+        return sources
     ds4 = Path(sources['ds4']['path'])
     try:
         _git(ds4, 'cat-file', '-e', OLD_DS4 + '^{commit}')
@@ -421,9 +433,11 @@ def build_all(root: Path, sources: dict, home: Path, args: argparse.Namespace, r
             raise WorkflowError('构建总预算耗尽。')
         recorder.require(label, argv, cwd, remaining, env)
 
-    for name, engine, commit in [('ds4-new', 'ds4', sources['ds4']['commit']),
-                                 ('ds4-old', 'ds4', OLD_DS4),
-                                 ('llama', 'llama.cpp', sources['llama.cpp']['commit'])]:
+    targets = [('ds4-new', 'ds4', sources['ds4']['commit']),
+               ('llama', 'llama.cpp', sources['llama.cpp']['commit'])]
+    if getattr(args, 'frozen_p0', False):
+        targets.insert(1, ('ds4-old', 'ds4', OLD_DS4))
+    for name, engine, commit in targets:
         destination = recorder.directory / name
         cached = previous.get(name, {})
         if cached.get('status') == 'built' and cached.get('commit') == commit:
@@ -469,6 +483,8 @@ def build_all(root: Path, sources: dict, home: Path, args: argparse.Namespace, r
             builds[name]['binaries'].append({'path': str(binary), 'sha256': sha256(binary), 'linkage_log': linkage['log']})
         builds[name]['status'] = 'built'
         recorder.save()
+    if not getattr(args, 'frozen_p0', False):
+        return builds
     newer = Path(builds['ds4-new']['source'])
     llama = Path(builds['llama']['source'])
     run('build-score-official', ['make', f'-j{args.jobs}', 'gguf-tools/quality-testing/score_official', f'CUDA_HOME={home}', 'CUDA_ARCH=sm_121'], newer)
@@ -493,6 +509,11 @@ def build_all(root: Path, sources: dict, home: Path, args: argparse.Namespace, r
 
 
 def prepare(root: Path, args: argparse.Namespace) -> tuple[Path, int]:
+    if args.update_sources:
+        if args.offline or args.dry_run or args.check_only or args.resume:
+            raise WorkflowError('--update-sources 不能与 offline/dry-run/check-only/resume 合用；更新后请新建构建。')
+        from lab_tools.source_tracking import update_sources
+        update_sources(root)
     engines = set(getattr(args, 'engines', ['ds4', 'llama']))
     if 'all' in engines:
         engines = {'ds4', 'llama', 'sglang', 'vllm', 'freetoken'}
@@ -591,7 +612,10 @@ def prepare_p0(root: Path, args: argparse.Namespace) -> tuple[Path, int]:
             manifest['status'] = 'inventory_only'
             manifest['blockers'].append('check-only：完整 SHA256、support、CUDA 探针及构建未执行。')
             return directory, 2
-        manifest['sources'] = prepare_sources(root, reference, recorder, args.offline)
+        manifest['source_mode'] = 'frozen-p0' if args.frozen_p0 else 'current-checkout'
+        manifest['sources'] = prepare_sources(root, reference, recorder, args.offline, args.frozen_p0)
+        if previous and previous.get('sources') != manifest['sources']:
+            raise WorkflowError('恢复目录的源码版本与本次选择不同，请新建初始化。')
         recorder.save()
         if platform.system() != 'Linux' or platform.machine() not in ('aarch64', 'arm64'):
             raise WorkflowError('P0 的 sm_121a 构建需要 Linux ARM64 GB10 环境。')
@@ -611,10 +635,11 @@ def prepare_p0(root: Path, args: argparse.Namespace) -> tuple[Path, int]:
         if runtime['exit_code']:
             manifest['blockers'].append('CUDA 设备/kernel 探针失败；核对设备访问权限、驱动与 runtime 日志。')
         manifest['builds'] = build_all(root, manifest['sources'], home, args, recorder)
-        support_started = time.monotonic()
-        manifest['support'] = prepare_support(root, args.models_dir, reference, recorder, args.offline,
-                                              args.download_timeout)
-        manifest['support']['preparation_duration_seconds'] = round(time.monotonic() - support_started, 3)
+        if args.frozen_p0:
+            support_started = time.monotonic()
+            manifest['support'] = prepare_support(root, args.models_dir, reference, recorder, args.offline,
+                                                  args.download_timeout)
+            manifest['support']['preparation_duration_seconds'] = round(time.monotonic() - support_started, 3)
         manifest['ready_for_validation'] = not manifest['blockers']
         manifest['status'] = 'prepared' if manifest['ready_for_validation'] else 'blocked'
         exit_code = 0 if manifest['ready_for_validation'] else 2

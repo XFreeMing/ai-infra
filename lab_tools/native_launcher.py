@@ -14,6 +14,7 @@ import tempfile
 from lab_tools.cli import WorkflowError, _git, _reject_hidden_changes
 from lab_tools.native_model import MODEL_DIR, inspect_model, profile
 from lab_tools.prepare import sha256
+from lab_tools.source_tracking import source_revision
 
 
 def positive_port(value: str) -> int:
@@ -29,8 +30,7 @@ def resolve_python(root: Path, engine: str, preparation_dir: Path | None,
         return explicit.absolute(), None
     directories = [(root / preparation_dir).resolve()] if preparation_dir else sorted(
         (root / 'artifacts/init').glob('*'), reverse=True)
-    ref = f':sources/{engine}' if engine == 'freetoken' else f'HEAD:sources/{engine}'
-    pin = _git(root, 'rev-parse', ref)
+    pin, _ = source_revision(root, engine, _git)
     for directory in directories:
         path = directory / 'manifest.json'
         if not path.is_file():
@@ -118,7 +118,7 @@ def launch(engine: str, arguments: list[str], *, port: int, cuda_devices: str,
                    'freetoken': 'freetoken.cli'}
         module = modules[engine]
         prefix = ['serve'] if engine == 'freetoken' else []
-        command = [str(executable), '-m', module, *prefix, *arguments]
+        command = [str(executable), '-I', '-m', module, *prefix, *arguments]
         if prepared:
             env = {**prepared['framework'].get('runtime_environment', {}), **env}
         env.update(runtime_environment or {})
@@ -145,7 +145,7 @@ def launch(engine: str, arguments: list[str], *, port: int, cuda_devices: str,
             raise WorkflowError(f'Python 不存在或不可执行：{executable}')
         full_env = {**os.environ, **env}
         if args.server_help:
-            return subprocess.run([str(executable), '-m', module, *prefix, '--help'], env=full_env, timeout=60).returncode
+            return subprocess.run([str(executable), '-I', '-m', module, *prefix, '--help'], env=full_env, timeout=60).returncode
         model_record = inspector(model, expected)
         probe = '''import importlib,json,pathlib,sys,torch
 module=importlib.import_module(sys.argv[1])
@@ -155,11 +155,11 @@ if sys.argv[1]=='freetoken':
     for name in ('_pinned_tensor','_cpu_moe','_row_store'):
         importlib.import_module('freetoken.kernel.'+name)
 else:
-    importlib.import_module('sgl_kernel' if sys.argv[1]=='sglang' else 'vllm._C')
+    importlib.import_module('sgl_kernel' if sys.argv[1]=='sglang' else 'vllm._C_stable_libtorch')
 x=torch.arange(8,device='cuda'); result=x.sum().item(); torch.cuda.synchronize(); assert result==28
 print(json.dumps({'gpu':torch.cuda.get_device_name(0),'torch_cuda':torch.version.cuda,
                   'module_path':str(pathlib.Path(module.__file__).resolve()),'cuda_tensor_result':result}))'''
-        checked = subprocess.run([str(executable), '-c', probe, engine, str(tp)], env=full_env,
+        checked = subprocess.run([str(executable), '-I', '-c', probe, engine, str(tp)], env=full_env,
                                  capture_output=True, text=True, timeout=60)
         if checked.returncode:
             raise WorkflowError(f'启动前 CUDA/import 检查失败：{checked.stderr[-4000:]}')
