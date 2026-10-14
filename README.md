@@ -196,7 +196,23 @@ uv run freetoken --server-help                 # 已安装环境中的 ft serve 
 uv run freetoken                               # 默认 0.0.0.0:6666，前台运行
 ```
 
-[serve_freetoken.py](lab_tools/serve_freetoken.py) 顶部设置模型目录、CUDA 可见设备、host/port、context、dtype、MoE 策略和 kernel cache。默认 context `65536`（本地模型上限 262144），KV cache 显式设置为 65536 pages（page_size=1），prefill chunk 4096，单并发，输出预算 512，memory ratio 0.80，text-only、reasoning off；需要图像输入时自行调整 `TEXT_MODEL_ONLY`。临时参数放在 `--` 后，例如 `uv run freetoken -- --max-seq-len-override 8192`。
+共享模型身份与路径统一在 [model_catalog.py](lab_tools/model_catalog.py) 的 `ModelKey` 枚举和 `MODEL_CATALOG` 中维护。枚举成员统一使用单下划线，包含模型版本、变体和必要的精度或量化区别，例如 `QWEN3_8_FLASH_NEXT_FP8_BLOCK128`。同一模型有不同文件格式的产物时添加格式后缀，不同发布者的导出需要区分时添加发布者前缀。枚举的 `.value` 保留完整、稳定的产物标识，例如 `qwen/qwen3.8-flash-next/fp8-block128/safetensors`，可在运行记录中序列化，通过 `ModelKey(value)` 恢复。各引擎从 `ModelSpec` 读取属性，不解析枚举名称来推断精度或格式。
+
+目录中的 `ModelSpec` 分开记录 `model_name`（名称）、`repository_id`（具体权重仓库）、`model_path`（本地路径）、`weight_format`（safetensors/GGUF）、`weight_precisions`（主要权重可混合精度）、`quantization_method` 和 `quantization_scheme`（导出方法与量化方案）、`revision`。运行 `dtype`、context、KV page size、attention/MoE backend 在各引擎的配置中维护。SGLang/vLLM 的现有 DeepSeek 默认路径和准入身份也复用该目录；登记模型身份不表示某个引擎已经支持它。
+
+FreeToken 参数在 [freetoken_models.py](lab_tools/freetoken_models.py) 的 `MODELS` 中维护，每项是一个以共享 `ModelKey` 为身份的 `FreeTokenModelConfig` 对象。只需修改同文件的 `DEFAULT_MODEL`，即可切换 `uv run freetoken` 和 `uv run init --engines freetoken` 的默认模型：
+
+```python
+from lab_tools.model_catalog import ModelKey
+
+DEFAULT_MODEL = ModelKey.QWEN3_6_35B_A3B_BF16
+```
+
+当前默认 BF16 配置为 context `262144`、page size `1`、prefill chunk `4096`、单并发、输出预算 `512`、memory ratio `0.80`、text-only、reasoning off。本地模型路径在共享 `MODEL_CATALOG` 中修改；在引擎对象中调整 `context_size`、`page_size`、`dtype`、`moe_strategy`、`attention_backend` 和 `extra_args` 等字段。单独实验可用 `model_path_override` 临时覆盖路径。`kv_pages=None` 默认按 `ceil(context_size / page_size)` 自动换算；需要独立 KV 预算时填写 `kv_pages`。
+
+预置的 `Qwen3.8-Flash-Next-FP8` 对象使用 context `4096`、QSA page size `64`（自动得到 64 pages）和 `--ple-backend disk`。该 FP8 checkpoint 的文本权重仍超过单 GB10 总内存，选择配置不代表能够启动；现有容量准入检查继续生效。该对象也不复用 BF16 模型的冻结身份记录。
+
+服务级设置（CUDA 可见设备、host/port、Python、准备目录和 kernel cache）保留在 [serve_freetoken.py](lab_tools/serve_freetoken.py)。临时参数仍放在 `--` 后，例如 `uv run freetoken -- --max-seq-len-override 8192 --num-pages 8192`（默认 BF16 page size 为 1）。启动记录保存枚举 KEY，并同时保存入口、引擎配置和共享模型目录文件的 SHA256。
 
 `init --engines freetoken` 不下载模型。它从固定子模块 clone 到独立准备目录，创建专用 venv，安装 torch 2.14.1/CUDA 13.0 wheel 与上游 `[accel]` 依赖，再从源码构建 `_pinned_tensor`、`_cpu_moe`、`_row_store`。调用上游 `compile_and_package_kernels`，将其默认 AOT spec 集构建到准备目录的独立 kernel cache，设置 `TVM_FFI_CUDA_ARCH_LIST=12.1`；源码保持原样，不使用 x86_64 nightly wheel。每个 spec 顺序构建，内部编译并行度由 `--jobs` 控制。最后校验实际 import path、CUDA Tensor、FreeToken 自有 GPU store kernel 输出，以及扩展/cache 文件的 SHA256。
 

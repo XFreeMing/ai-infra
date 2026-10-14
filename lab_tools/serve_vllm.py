@@ -1,8 +1,9 @@
 """uv run vllm [5555]；先编辑顶部变量，再在已准备的 CUDA venv 中启动。"""
 from pathlib import Path
+from lab_tools.model_catalog import ModelKey, get_model
 
 # 用户配置：模型必须已手动下载为本地完整 safetensors 目录。
-MODEL_PATH = Path('/data/models/DeepSeek-V4.1-Flash-NVFP4')
+MODEL_PATH = get_model(ModelKey.DEEPSEEK_V4_1_FLASH_NVFP4).model_path
 PYTHON_EXECUTABLE: Path | None = None
 PREPARATION_DIR: Path | None = None
 CUDA_VISIBLE_DEVICES = '0'

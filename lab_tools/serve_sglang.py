@@ -1,8 +1,9 @@
 """uv run sglang [3333]；先编辑顶部变量，再在已准备的 CUDA venv 中启动。"""
 from pathlib import Path
+from lab_tools.model_catalog import ModelKey, get_model
 
 # 用户配置：本地目录，不填写在线 repo ID；脚本不会下载模型。
-MODEL_PATH = Path('/data/models/DeepSeek-V4.1-Flash-NVFP4')
+MODEL_PATH = get_model(ModelKey.DEEPSEEK_V4_1_FLASH_NVFP4).model_path
 PYTHON_EXECUTABLE: Path | None = None
 PREPARATION_DIR: Path | None = None
 CUDA_VISIBLE_DEVICES = '0'

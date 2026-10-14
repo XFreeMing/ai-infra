@@ -1,5 +1,6 @@
 """Admission and isolation regressions; these tests never build frameworks or load GPUs."""
 import argparse
+from dataclasses import replace
 from contextlib import redirect_stdout, redirect_stderr
 import hashlib
 import importlib.util
@@ -17,6 +18,8 @@ from lab_tools import native_launcher as launcher, native_model as model, native
 from lab_tools import prepare, serve_sglang, serve_vllm, serve_freetoken, freetoken_model
 from lab_tools.cli import WorkflowError
 from lab_tools import source_tracking
+from lab_tools import freetoken_models
+from lab_tools.model_catalog import ModelKey, MODEL_CATALOG, get_model
 
 
 class NativeServingTests(unittest.TestCase):
@@ -230,7 +233,8 @@ class NativeServingTests(unittest.TestCase):
                                      (['freetoken'], '--check-only', 2), (['all'], '--dry-run', 0)]:
             with self.subTest(engines=engines, option=option), \
                  patch.object(prep, '_git', side_effect=self.git) as git, \
-                 patch.object(serve_freetoken, 'MODEL_PATH', self.directory), \
+                 patch.dict(freetoken_models.MODELS, {freetoken_models.DEFAULT_MODEL: replace(
+                     freetoken_models.selected_model(), model_path_override=self.directory)}), \
                  patch.object(freetoken_model, 'MODEL_DIR', self.directory), \
                  patch.object(prep.Recorder, 'command') as command, \
                  patch.object(prepare, 'prepare_p0') as p0, \
@@ -335,7 +339,92 @@ class NativeServingTests(unittest.TestCase):
         self.assertEqual(frozen['dtype'], 'bfloat16')
         self.assertIsNone(frozen['revision'])
         self.assertFalse(frozen['full_weights_sha256_checked'])
-        self.assertEqual(serve_freetoken.MODEL_PATH, freetoken_model.MODEL_DIR)
+        self.assertEqual(freetoken_models.selected_model().model_path, freetoken_model.MODEL_DIR)
+
+    def test_freetoken_default_selection_changes_model_and_kv_geometry_together(self):
+        self.freetoken_fixture()
+        key = ModelKey.QWEN3_8_FLASH_NEXT_FP8_BLOCK128
+        config = replace(freetoken_models.MODELS[key], model_path_override=self.directory, context_size=262144)
+        output = io.StringIO()
+        with patch.object(freetoken_models, 'DEFAULT_MODEL', key), \
+             patch.dict(freetoken_models.MODELS, {key: config}), \
+             patch.object(launcher, 'resolve_python', side_effect=WorkflowError('not built')), \
+             patch.object(launcher.os, 'execve') as execute, redirect_stdout(output):
+            code = serve_freetoken.main(['7777', '--dry-run'])
+            planned = prep.model_configuration(self.root, 'freetoken')
+        self.assertEqual(code, 0)
+        record = json.JSONDecoder().raw_decode(output.getvalue())[0]
+        argv = record['argv']
+        self.assertEqual(argv[argv.index('--model') + 1], str(self.directory))
+        self.assertEqual(argv[argv.index('--max-seq-len-override') + 1], '262144')
+        self.assertEqual(argv[argv.index('--page-size') + 1], '64')
+        self.assertEqual(argv[argv.index('--num-pages') + 1], '4096')
+        self.assertEqual(argv[argv.index('--ple-backend') + 1], 'disk')
+        self.assertEqual(argv[argv.index('--port') + 1], '7777')
+        self.assertEqual(record['default_model_id'], config.model_id)
+        self.assertEqual(record['default_model_key'], key.value)
+        self.assertIsNone(record['default_weight_bytes'])
+        self.assertEqual(planned['path'], str(self.directory))
+        self.assertEqual(planned['profile']['model_id'], config.model_id)
+        self.assertIsNone(planned['profile_file'])
+        execute.assert_not_called()
+
+    def test_freetoken_init_plan_uses_selected_model_without_bf16_profile_label(self):
+        key = ModelKey.QWEN3_8_FLASH_NEXT_FP8_BLOCK128
+        output = io.StringIO()
+        with patch.object(freetoken_models, 'DEFAULT_MODEL', key), \
+             patch.object(prep, '_git', side_effect=self.git), \
+             patch.object(prep.Recorder, 'command') as command, redirect_stdout(output):
+            directory, code = prepare.prepare(self.root, self.parser.parse_args(
+                ['--engines', 'freetoken', '--dry-run']))
+        manifest = json.loads((directory / 'manifest.json').read_text())
+        self.assertEqual(code, 0)
+        self.assertEqual(manifest['model_dir'], str(freetoken_models.MODELS[key].model_path))
+        self.assertEqual(manifest['model_id'], freetoken_models.MODELS[key].model_id)
+        self.assertEqual(manifest['model_key'], key.value)
+        self.assertIsNone(manifest['model_weight_bytes'])
+        self.assertIsNone(manifest['model_profile_sha256'])
+        command.assert_not_called()
+
+    def test_unknown_freetoken_default_fails_before_launch(self):
+        output = io.StringIO()
+        with patch.object(freetoken_models, 'DEFAULT_MODEL', 'missing-model'), \
+             patch.object(launcher, 'launch') as launch, redirect_stderr(output):
+            code = serve_freetoken.main(['--dry-run'])
+        self.assertEqual(code, 2)
+        self.assertIn('未知 FreeToken 默认模型', output.getvalue())
+        launch.assert_not_called()
+
+    def test_model_catalog_is_shared_by_native_engines_and_matches_frozen_identity(self):
+        self.assertEqual(set(MODEL_CATALOG), set(ModelKey))
+        for key in ModelKey:
+            self.assertIs(ModelKey(key.value), key)
+        key = ModelKey.DEEPSEEK_V4_1_FLASH_NVFP4
+        spec = get_model(key)
+        frozen = model.profile(Path(__file__).resolve().parents[1])
+        self.assertEqual(spec.repository_id, frozen['model_id'])
+        self.assertEqual(spec.revision, frozen['revision'])
+        self.assertEqual(spec.quantization_method, frozen['quant_method'])
+        self.assertEqual(spec.model_path, serve_sglang.MODEL_PATH)
+        self.assertEqual(spec.model_path, serve_vllm.MODEL_PATH)
+        for engine in ('sglang', 'vllm'):
+            configuration = prep.model_configuration(Path(__file__).resolve().parents[1], engine)
+            self.assertEqual(configuration['model_key'], key.value)
+            self.assertEqual(configuration['path'], str(spec.model_path))
+        self.assertIn('fp8_e4m3', spec.weight_precisions)
+        self.assertIn('nvfp4', spec.weight_precisions)
+        with self.assertRaisesRegex(WorkflowError, 'ModelKey'):
+            get_model(key.value)
+
+    def test_freetoken_mismatched_registry_key_fails_before_launch(self):
+        bf16 = ModelKey.QWEN3_6_35B_A3B_BF16
+        fp8 = ModelKey.QWEN3_8_FLASH_NEXT_FP8_BLOCK128
+        with patch.object(freetoken_models, 'DEFAULT_MODEL', bf16), \
+             patch.dict(freetoken_models.MODELS, {bf16: freetoken_models.MODELS[fp8]}), \
+             patch.object(launcher, 'launch') as launch, redirect_stderr(io.StringIO()):
+            code = serve_freetoken.main(['--dry-run'])
+        self.assertEqual(code, 2)
+        launch.assert_not_called()
 
     def test_native_plan_and_inventory_never_execute_or_download(self):
         for option, expected_code, status in [('--dry-run', 0, 'planned'), ('--check-only', 2, 'inventory_only')]:

@@ -12,7 +12,7 @@ import sys
 import tempfile
 
 from lab_tools.cli import WorkflowError, _git, _reject_hidden_changes
-from lab_tools.native_model import MODEL_DIR, inspect_model, profile
+from lab_tools.native_model import MODEL_KEY, MODEL_DIR, inspect_model, profile
 from lab_tools.prepare import sha256
 from lab_tools.source_tracking import source_revision
 
@@ -91,6 +91,7 @@ def effective_arguments(arguments: list[str], engine: str, port: int, extra: lis
 def launch(engine: str, arguments: list[str], *, port: int, cuda_devices: str,
            python: Path | None, preparation_dir: Path | None, configuration_file: Path,
            runtime_environment: dict | None = None,
+           configuration_files: tuple[Path, ...] = (),
            argv: list[str] | None = None, root: Path | None = None) -> int:
     root = (root or Path(__file__).resolve().parents[1]).resolve()
     parser = argparse.ArgumentParser(prog=engine, description='从独立 CUDA 环境启动本地模型；不会下载权重。')
@@ -128,6 +129,18 @@ def launch(engine: str, arguments: list[str], *, port: int, cuda_devices: str,
         else:
             DEFAULT_MODEL, inspector, model_profile = MODEL_DIR, inspect_model, profile
         default_profile = model_profile(root)
+        default_model_id = default_profile['model_id']
+        default_weight_bytes = default_profile['weight_bytes']
+        default_model_key = MODEL_KEY.value
+        default_model_path = DEFAULT_MODEL
+        if engine == 'freetoken':
+            from lab_tools.freetoken_models import selected_model
+            selected = selected_model()
+            default_model_id = selected.model_id
+            default_model_key = selected.model.value
+            default_model_path = selected.model_path
+            if selected.model_path.resolve() != DEFAULT_MODEL.resolve():
+                default_weight_bytes = None
         expected = default_profile if model.resolve() == DEFAULT_MODEL.resolve() else None
         if args.dry_run:
             try:
@@ -136,8 +149,9 @@ def launch(engine: str, arguments: list[str], *, port: int, cuda_devices: str,
                 model_record = {'ready': False, 'reason': str(error)}
             print(json.dumps({'engine': engine, 'argv': command, 'environment': env,
                               'framework_blocker': unresolved, 'model': model_record,
-                              'default_model_id': default_profile['model_id'],
-                              'default_weight_bytes': default_profile['weight_bytes'],
+                              'default_model_id': default_model_id,
+                              'default_model_key': default_model_key,
+                              'default_weight_bytes': default_weight_bytes,
                               'gpu_inference_validated': False}, ensure_ascii=False, indent=2))
             print(shlex.join(command))
             return 0
@@ -190,8 +204,13 @@ print(json.dumps({'gpu':torch.cuda.get_device_name(0),'torch_cuda':torch.version
         directory = Path(tempfile.mkdtemp(prefix=f'{stamp}-{engine}-', dir=parent))
         receipt = {'engine': engine, 'parent_commit': _git(root, 'rev-parse', 'HEAD'),
                    'status': 'launch_requested', 'argv': command, 'environment': env,
-                   'prepared': prepared, 'model': model_record, 'cuda_probe': gpu,
-                   'configuration_sha256': sha256(configuration_file), 'gpu_inference_validated': False}
+                   'prepared': prepared, 'model': model_record,
+                   'model_key': default_model_key if model.resolve() == default_model_path.resolve() else None,
+                   'cuda_probe': gpu,
+                   'configuration_sha256': sha256(configuration_file),
+                   'configuration_files_sha256': {str(path.absolute()): sha256(path)
+                                                  for path in (configuration_file, *configuration_files)},
+                   'gpu_inference_validated': False}
         (directory / 'launch.json').write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + '\n')
         print(f'启动记录：{directory / "launch.json"}', flush=True)
         os.execve(executable, command, full_env)

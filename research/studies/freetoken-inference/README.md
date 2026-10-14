@@ -38,7 +38,7 @@ V4.1 容量边界另有区别：上游 [weight loader](https://github.com/FlashM
 
 ## 后续验证
 
-启动配置在 [serve_freetoken.py](../../../lab_tools/serve_freetoken.py) 顶部：CUDA_VISIBLE_DEVICES=0，host 0.0.0.0，port 6666，当前默认 context 65536、KV cache 65536 pages（page_size=1），prefill chunk 4096，单并发，512-token 默认输出预算，memory ratio 0.80。`uv run freetoken` 在准备好的专用 venv 调用 `python -m freetoken.cli serve`，使用本地完整模型和离线 HF 模式，保存启动请求与 provenance。不要并发驻留其他大模型。
+共享模型身份、精度/量化元数据和路径在 [model_catalog.py](../../../lab_tools/model_catalog.py) 的 `ModelKey` / `MODEL_CATALOG`；FreeToken 参数和枚举形式的默认模型选择在 [freetoken_models.py](../../../lab_tools/freetoken_models.py) 的 `MODELS` / `DEFAULT_MODEL`；服务环境设置在 [serve_freetoken.py](../../../lab_tools/serve_freetoken.py)。当前默认 BF16 context 262144，page_size=1，自动换算 KV cache 262144 pages，prefill chunk 4096，单并发，512-token 默认输出预算，memory ratio 0.80；CUDA_VISIBLE_DEVICES=0，host 0.0.0.0，port 6666。`uv run freetoken` 在准备好的专用 venv 调用 `python -m freetoken.cli serve`，使用本地完整模型和离线 HF 模式，保存启动请求与 provenance。不要并发驻留其他大模型。
 
 已理解：FreeToken 将专家数据位置、计算后端与统一内存条件分开处理；checkpoint architecture 支持和具体量化 reader 支持是不同准入条件。本次默认原生 Qwen BF16，可以复用本地文件，但不同于 ds4 P0 模型。
 

@@ -6,10 +6,13 @@ from pathlib import Path
 
 from lab_tools.cli import WorkflowError
 from lab_tools.prepare import sha256
+from lab_tools.model_catalog import ModelKey, get_model
 
-MODEL_ID = 'nv-community/DeepSeek-V4.1-Flash-NVFP4'
-MODEL_REVISION = '962b2d0e8b06e475b77ab32e694b5df51f7949fb'
-MODEL_DIR = Path('/data/models/DeepSeek-V4.1-Flash-NVFP4')
+MODEL_KEY = ModelKey.DEEPSEEK_V4_1_FLASH_NVFP4
+_REFERENCE_MODEL = get_model(MODEL_KEY)
+MODEL_ID = _REFERENCE_MODEL.repository_id
+MODEL_REVISION = _REFERENCE_MODEL.revision
+MODEL_DIR = _REFERENCE_MODEL.model_path
 PROFILE = Path('research/studies/ds4-inference/NATIVE_MODEL.json')
 
 

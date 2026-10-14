@@ -14,7 +14,7 @@ import tomllib
 from contextlib import contextmanager
 
 from lab_tools.cli import WorkflowError, _git, _reject_hidden_changes
-from lab_tools.native_model import MODEL_DIR, PROFILE, inspect_model, profile
+from lab_tools.native_model import MODEL_KEY, MODEL_DIR, PROFILE, inspect_model, profile
 from lab_tools.prepare import Recorder, cuda_home, sha256
 from lab_tools.source_tracking import source_revision
 
@@ -202,15 +202,20 @@ receipt.write_text(json.dumps({'kernel_count': len(paths), 'paths': list(map(str
 
 def model_configuration(root: Path, engine: str, args=None) -> dict:
     if engine == 'freetoken':
-        from lab_tools import freetoken_model, serve_freetoken
-        path = serve_freetoken.MODEL_PATH
+        from lab_tools import freetoken_model, freetoken_models
+        selected = freetoken_models.selected_model()
+        path = selected.model_path
         if args and args.model:
             path = args.model
         elif args and args.models_dir != Path('/data/models'):
             path = args.models_dir / path.name
-        return {'path': str(path.absolute()), 'profile': freetoken_model.profile(root),
-                'profile_file': str(freetoken_model.PROFILE)}
-    return {'path': str(MODEL_DIR), 'profile': profile(root), 'profile_file': str(PROFILE)}
+        frozen = selected.model_path.resolve() == freetoken_model.MODEL_DIR.resolve()
+        model_profile = freetoken_model.profile(root) if frozen else {
+            'model_id': selected.model_id, 'revision': None, 'weight_bytes': None}
+        return {'path': str(path.absolute()), 'model_key': selected.model.value, 'profile': model_profile,
+                'profile_file': str(freetoken_model.PROFILE) if frozen else None}
+    return {'path': str(MODEL_DIR), 'model_key': MODEL_KEY.value,
+            'profile': profile(root), 'profile_file': str(PROFILE)}
 
 
 def new_directory(root: Path, suffix: str) -> Path:
@@ -324,11 +329,11 @@ def manifest_base(root: Path, directory: Path, args, engines: set[str]) -> dict:
             'package_default_index': package_index, 'torch_backend': TORCH_BACKEND,
             'plans': plans, 'frameworks': {}, 'gpu_inference_validated': False,
             'source_pin_refs': {engine: revisions[engine][1] for engine in plans},
-            'model_download_requested': False, 'model_id': model['model_id'],
+            'model_download_requested': False, 'model_key': primary.get('model_key'), 'model_id': model['model_id'],
             'model_revision': model['revision'], 'model_dir': primary['path'], 'models': models,
             'model_weight_bytes': model['weight_bytes'],
             'tooling_sha256': {str(p.relative_to(root)): sha256(p) for p in (root / 'lab_tools').glob('*.py')},
-            'model_profile_sha256': sha256(root / primary['profile_file']),
+            'model_profile_sha256': sha256(root / primary['profile_file']) if primary['profile_file'] else None,
             'platform_support_notes': ['FreeToken upstream install docs target Linux x86_64; ARM64 source build and CUDA probes must pass.']
                                       if 'freetoken' in engines else [],
             'inherited_build_environment': {name: os.environ[name] for name in

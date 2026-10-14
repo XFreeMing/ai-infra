@@ -1,43 +1,43 @@
-"""uv run freetoken [6666]；模型和常用启动参数在下方配置。"""
+"""uv run freetoken [6666]；模型配置和默认选择位于 freetoken_models.py。"""
 from pathlib import Path
 
-# 用户配置：现有完整原生 BF16 模型；不使用 ds4 的 Q2 GGUF，不下载模型。
-MODEL_PATH = Path('/data/models/Qwen3.6-35B-A3B-BF16')
+from lab_tools import freetoken_models
+from lab_tools import model_catalog
+from lab_tools.cli import WorkflowError
+
+# 服务环境设置；模型路径、context 和推理参数统一在 freetoken_models.py 维护。
 PYTHON_EXECUTABLE: Path | None = None
 PREPARATION_DIR: Path | None = None
 CUDA_VISIBLE_DEVICES = '0'
 HOST = '0.0.0.0'
 PORT = 6666
-CONTEXT_SIZE = 65536  # 输入和输出的总 token 上限；模型声明最大 262144。
-NUM_KV_PAGES = 65536  # page_size=1；显式分配与 context 相同的 KV 容量。
-DTYPE = 'bfloat16'
-MAX_PREFILL_LENGTH = 4096
-MAX_RUNNING_REQUESTS = 1
-MAX_OUTPUT_TOKENS = 512
-MEMORY_RATIO = 0.80
-MOE_STRATEGY = 'auto'  # GB10 + 本模型原生 BF16 experts 自动选择 fused resident。
-ATTENTION_BACKEND = 'auto'
-TEXT_MODEL_ONLY = True
-REASONING_PARSER = 'off'
 KERNEL_CACHE_DIR: Path | None = None  # None：使用 init 构建并校验的独立 kernel cache。
-EXTRA_ARGS: list[str] = []
 
 
 def server_arguments() -> list[str]:
-    args = ['--model', str(MODEL_PATH), '--served-model-name', MODEL_PATH.name,
-            '--host', HOST, '--max-seq-len-override', str(CONTEXT_SIZE), '--num-pages', str(NUM_KV_PAGES), '--dtype', DTYPE,
-            '--max-prefill-length', str(MAX_PREFILL_LENGTH), '--max-running-requests', str(MAX_RUNNING_REQUESTS),
-            '--max-output-tokens', str(MAX_OUTPUT_TOKENS), '--memory-ratio', str(MEMORY_RATIO),
-            '--moe-strategy', MOE_STRATEGY, '--attention-backend', ATTENTION_BACKEND,
-            '--reasoning-parser', REASONING_PARSER]
-    if TEXT_MODEL_ONLY:
+    model = freetoken_models.selected_model()
+    args = ['--model', str(model.model_path), '--served-model-name', model.model_path.name,
+            '--host', HOST, '--max-seq-len-override', str(model.context_size),
+            '--page-size', str(model.page_size), '--num-pages', str(model.num_kv_pages), '--dtype', model.dtype,
+            '--max-prefill-length', str(model.max_prefill_length), '--max-running-requests', str(model.max_running_requests),
+            '--max-output-tokens', str(model.max_output_tokens), '--memory-ratio', str(model.memory_ratio),
+            '--moe-strategy', model.moe_strategy, '--attention-backend', model.attention_backend,
+            '--reasoning-parser', model.reasoning_parser]
+    if model.text_model_only:
         args.append('--text-model-only')
-    return args + EXTRA_ARGS
+    return args + list(model.extra_args)
 
 
 def main(argv: list[str] | None = None) -> int:
     from lab_tools.native_launcher import launch
+    try:
+        arguments = server_arguments()
+    except WorkflowError as error:
+        import sys
+        print(f'无法启动 freetoken：{error}', file=sys.stderr)
+        return 2
     extra_env = {'FREETOKEN_KERNEL_CACHE_DIR': str(KERNEL_CACHE_DIR)} if KERNEL_CACHE_DIR else None
-    return launch('freetoken', server_arguments(), port=PORT, cuda_devices=CUDA_VISIBLE_DEVICES,
+    return launch('freetoken', arguments, port=PORT, cuda_devices=CUDA_VISIBLE_DEVICES,
                   python=PYTHON_EXECUTABLE, preparation_dir=PREPARATION_DIR,
-                  runtime_environment=extra_env, configuration_file=Path(__file__), argv=argv)
+                  runtime_environment=extra_env, configuration_file=Path(__file__),
+                  configuration_files=(Path(freetoken_models.__file__), Path(model_catalog.__file__)), argv=argv)
