@@ -182,6 +182,142 @@ class PreparationTests(unittest.TestCase):
         self.assertEqual(missing['exit_code'], 127)
         self.assertEqual(len(json.loads((output / 'manifest.json').read_text())['commands']), 2)
 
+    def test_command_streams_before_child_exit_and_preserves_raw_utf8_log(self):
+        output = self.root / 'live-log'
+        output.mkdir()
+        release = self.root / 'release'
+        terminal = io.StringIO()
+
+        class LiveOutput(io.StringIO):
+            def write(sink, text):
+                result = terminal.write(text)
+                if text.startswith('Downloading torch'):
+                    release.touch()
+                return result
+
+        code = (
+            'import os,sys,time; from pathlib import Path; '
+            f'release=Path({str(release)!r}); '
+            'os.write(1,b"Downloading torch (433 MiB)\\r" + "中".encode()[:2]); '
+            'deadline=time.monotonic()+3\n'
+            'while not release.exists():\n'
+            '    if time.monotonic()>deadline: sys.exit(6)\n'
+            '    time.sleep(.01)\n'
+            'os.write(1,"中".encode()[2:]+b"\\n"); os.write(2,b"stderr done\\n")\n'
+        )
+        recorder = prep.Recorder(self.root, output, {'commands': []})
+        with redirect_stdout(LiveOutput()):
+            result = recorder.command('freetoken-build-deps', [sys.executable, '-c', code], self.root, 5)
+        self.assertEqual(result['exit_code'], 0)
+        self.assertTrue(release.exists())
+        expected = b'Downloading torch (433 MiB)\r' + '中\nstderr done\n'.encode()
+        self.assertEqual((output / result['log']).read_bytes(), expected)
+        self.assertNotIn('\ufffd', terminal.getvalue())
+        self.assertIn('不下载模型权重', terminal.getvalue())
+        self.assertIn('退出码 0', terminal.getvalue())
+        self.assertIn(str((output / result['log']).resolve()), terminal.getvalue())
+        self.assertEqual(result['environment_overrides']['PYTHONUNBUFFERED'], '1')
+
+    def test_quiet_command_reports_progress_while_still_running(self):
+        output = self.root / 'quiet-log'
+        output.mkdir()
+        release = self.root / 'quiet-release'
+
+        class HeartbeatOutput(io.StringIO):
+            def write(sink, text):
+                result = super().write(text)
+                if text.startswith('\n进行中：'):
+                    release.touch()
+                return result
+
+        terminal = HeartbeatOutput()
+        code = (f'from pathlib import Path; import time,sys; p=Path({str(release)!r}); '
+                'deadline=time.monotonic()+3\n'
+                'while not p.exists():\n'
+                '    if time.monotonic()>deadline: sys.exit(6)\n'
+                '    time.sleep(.01)\n')
+        recorder = prep.Recorder(self.root, output, {'commands': []})
+        with patch.object(prep, 'OUTPUT_POLL_SECONDS', .01), \
+             patch.object(prep, 'PROGRESS_INTERVAL_SECONDS', .03), redirect_stdout(terminal):
+            result = recorder.command('quiet-build', [sys.executable, '-c', code], self.root, 5)
+        self.assertEqual(result['exit_code'], 0)
+        self.assertTrue(release.exists())
+        self.assertIn('无新增输出', terminal.getvalue())
+        self.assertIn('剩余预算', terminal.getvalue())
+        self.assertEqual((output / result['log']).read_bytes(), b'')
+
+    def test_streamed_failure_keeps_stderr_log_and_nonzero_exit(self):
+        output = self.root / 'failure-log'
+        output.mkdir()
+        terminal = io.StringIO()
+        recorder = prep.Recorder(self.root, output, {'commands': []})
+        with redirect_stdout(terminal):
+            result = recorder.command('compile-failed', [sys.executable, '-c',
+                'import os; os.write(2,b"compiler failed\\n"); raise SystemExit(7)'], self.root)
+        self.assertEqual((result['exit_code'], result['status']), (7, 'failed'))
+        self.assertEqual((output / result['log']).read_bytes(), b'compiler failed\n')
+        self.assertIn('compiler failed\n', terminal.getvalue())
+        self.assertIn('步骤失败', terminal.getvalue())
+        self.assertIn('退出码 7', terminal.getvalue())
+
+    def test_interrupt_during_live_output_is_saved_and_child_is_stopped(self):
+        output = self.root / 'interrupt-log'
+        output.mkdir()
+
+        class InterruptOutput(io.StringIO):
+            interrupted = False
+            def write(sink, text):
+                result = super().write(text)
+                if text.startswith('COMMAND_INTERRUPT_MARKER') and not sink.interrupted:
+                    sink.interrupted = True
+                    raise KeyboardInterrupt
+                return result
+
+        manifest = {'commands': []}
+        recorder = prep.Recorder(self.root, output, manifest)
+        with redirect_stdout(InterruptOutput()), self.assertRaises(KeyboardInterrupt):
+            recorder.command('interrupt', [sys.executable, '-c',
+                'import time; print("COMMAND_INTERRUPT_MARKER",flush=True); time.sleep(20)'], self.root)
+        result = json.loads((output / 'manifest.json').read_text())['commands'][0]
+        self.assertEqual((result['exit_code'], result['status']), (130, 'interrupted'))
+        self.assertIn('finished_at', result)
+        self.assertLess(result['duration_seconds'], 5)
+        self.assertEqual((output / result['log']).read_bytes(), b'COMMAND_INTERRUPT_MARKER\n')
+
+    def test_unlimited_command_keeps_waiting_after_simulated_two_hours(self):
+        output = self.root / 'unlimited-log'
+        output.mkdir()
+        release = self.root / 'unlimited-release'
+
+        class HeartbeatOutput(io.StringIO):
+            def write(sink, text):
+                result = super().write(text)
+                if text.startswith('\n进行中：'):
+                    release.touch()
+                return result
+
+        code = (f'from pathlib import Path; import time,sys; p=Path({str(release)!r}); '
+                'deadline=time.monotonic()+3\n'
+                'while not p.exists():\n'
+                '    if time.monotonic()>deadline: sys.exit(6)\n'
+                '    time.sleep(.01)\n')
+        actual_clock = prep.time.monotonic
+        calls = 0
+        def advanced_clock():
+            nonlocal calls
+            calls += 1
+            return actual_clock() + (0 if calls == 1 else 10000)
+
+        terminal = HeartbeatOutput()
+        recorder = prep.Recorder(self.root, output, {'commands': []})
+        with patch.object(prep.time, 'monotonic', side_effect=advanced_clock), redirect_stdout(terminal):
+            result = recorder.command('unlimited-build', [sys.executable, '-c', code], self.root)
+        self.assertEqual(result['exit_code'], 0)
+        self.assertIsNone(result['timeout_seconds'])
+        self.assertIn('不限时', terminal.getvalue())
+        self.assertNotIn('剩余预算', terminal.getvalue())
+        self.assertGreaterEqual(result['duration_seconds'], 10000)
+
     def test_scorer_adapter_changes_only_load_api_and_rejects_unknown_source(self):
         source = self.root / 'score_llama.cpp'
         original = 'before\n    model_params.use_mmap = true;\nafter\n'
@@ -300,10 +436,17 @@ class PreparationTests(unittest.TestCase):
             self.assertEqual(cli.init_main(), 2)
         main.assert_called_once_with(['init', '--offline'])
 
-    def test_budget_flags_reject_nonpositive_values(self):
-        for flag in ('--jobs', '--build-timeout', '--download-timeout'):
+    def test_timeout_defaults_and_zero_disable_deadlines(self):
+        self.assertIsNone(self.args().build_timeout)
+        self.assertIsNone(self.args().download_timeout)
+        self.assertIsNone(self.args('--build-timeout', '0').build_timeout)
+        self.assertIsNone(self.args('--download-timeout', '0').download_timeout)
+        self.assertEqual(self.args('--build-timeout', '7200').build_timeout, 7200)
+
+    def test_budget_flags_reject_invalid_values(self):
+        for flag, value in (('--jobs', '0'), ('--build-timeout', '-1'), ('--download-timeout', '-1')):
             with redirect_stdout(io.StringIO()), patch.object(sys, 'stderr', io.StringIO()), self.assertRaises(SystemExit):
-                self.args(flag, '0')
+                self.args(flag, value)
 
 
 if __name__ == '__main__':
