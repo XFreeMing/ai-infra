@@ -18,7 +18,7 @@ import tempfile
 import time
 import urllib.request
 
-from ai_infra.cli import WorkflowError, _git, _reject_hidden_changes, _stop_process_group, _write_manifest, doctor
+from lab_tools.cli import WorkflowError, _git, _reject_hidden_changes, _stop_process_group, _write_manifest, doctor
 
 STUDY = Path('research/studies/ds4-inference')
 OLD_DS4 = 'd6b516abb4a286a423fdb4071a19f86a3d9ab9c0'
@@ -496,7 +496,7 @@ def prepare(root: Path, args: argparse.Namespace) -> tuple[Path, int]:
     engines = set(getattr(args, 'engines', ['ds4', 'llama']))
     if 'all' in engines:
         engines = {'ds4', 'llama', 'sglang', 'vllm', 'freetoken'}
-    from ai_infra.native_prepare import prepare_native, prepare_plan
+    from lab_tools.native_prepare import prepare_native, prepare_plan
     if args.dry_run:
         return prepare_plan(root, args, engines)
     if engines & {'sglang', 'vllm', 'freetoken'}:
@@ -555,7 +555,7 @@ def prepare_p0(root: Path, args: argparse.Namespace) -> tuple[Path, int]:
     }
     manifest['tooling_sha256'] = {
         str(path.relative_to(root)): sha256(path)
-        for path in (root / 'ai_infra').glob('*.py') if path.is_file()
+        for path in (root / 'lab_tools').glob('*.py') if path.is_file()
     }
     recorder = Recorder(root, directory, manifest)
     recorder.save()

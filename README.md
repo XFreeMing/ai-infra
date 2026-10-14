@@ -17,6 +17,8 @@
 
 需要 Git、Python 3.12+。可以使用已有 Python，也可以使用 uv 管理的环境；工作台本身没有第三方 Python 运行依赖。
 
+本项目的 Python 工具集中在 [`lab_tools/`](lab_tools/)，负责环境准备、实验记录和服务启动。
+
 uv 默认 PyPI index 已配置为清华 TUNA：`https://pypi.tuna.tsinghua.edu.cn/simple`，设置位于 [pyproject.toml](pyproject.toml)。`init` 在独立上游 clone 中执行的依赖安装也显式传入此默认源，启动计划和日志会显示 `--default-index`；需要换源时修改项目配置中的 default index。手动 ModelScope 下载脚本的独立 uv 环境也配置了同一镜像。PyTorch CUDA 包仍通过 `--torch-backend cu130` 选择官方 CUDA 专用源，其大型 wheel 不保证由这个 PyPI 镜像加速。此配置影响 Python 包安装，模型权重仍由原来的手动下载脚本处理。[TUNA 官方说明](https://mirrors.tuna.tsinghua.edu.cn/help/pypi/)、[uv 脚本 index 配置](https://docs.astral.sh/uv/guides/scripts/#using-alternative-package-indexes)
 
 ```sh
@@ -94,8 +96,8 @@ uv run llama               # 0.0.0.0:2222，--gpu-layers all --fit off
 
 | 文件 | 常用变量 | 初始值 |
 | --- | --- | --- |
-| [serve_ds4.py](ai_infra/serve_ds4.py) | `MODEL_PATH`、`CONTEXT_SIZE`、`HOST`、`PORT`、`PREFILL_CHUNK`、`MAX_OUTPUT_TOKENS` | context 4096，端口 1111，prefill chunk 4096，默认输出上限 512 |
-| [serve_llama.py](ai_infra/serve_llama.py) | `MODEL_PATH`、`CONTEXT_SIZE`、`HOST`、`PORT`、`BATCH_SIZE`、`UBATCH_SIZE`、`MMPROJ_PATH` | context 4096，端口 2222，batch 4096，ubatch 2048，单 slot，Jinja 开启 |
+| [serve_ds4.py](lab_tools/serve_ds4.py) | `MODEL_PATH`、`CONTEXT_SIZE`、`HOST`、`PORT`、`PREFILL_CHUNK`、`MAX_OUTPUT_TOKENS` | context 4096，端口 1111，prefill chunk 4096，默认输出上限 512 |
+| [serve_llama.py](lab_tools/serve_llama.py) | `MODEL_PATH`、`CONTEXT_SIZE`、`HOST`、`PORT`、`BATCH_SIZE`、`UBATCH_SIZE`、`MMPROJ_PATH` | context 4096，端口 2222，batch 4096，ubatch 2048，单 slot，Jinja 开启 |
 
 `SERVER_BINARY=None` 默认选取与 R0 引擎提交匹配的最新 `prepared` 构建并校验二进制 hash；`PREPARATION_DIR` 可固定某次构建目录，`SERVER_BINARY` 可指定自己的绝对路径。换模型时修改 `MODEL_PATH`；本次文本 GGUF 不需要 `mmproj`，视觉模型则在 llama 脚本设置匹配的 `MMPROJ_PATH`，ds4 使用 `VISION_PATH`。
 
@@ -145,7 +147,7 @@ uv run sglang 3333
 uv run vllm 5555
 ```
 
-模型、context、TP、GPU 可见列表和批处理参数位于 [serve_sglang.py](ai_infra/serve_sglang.py) / [serve_vllm.py](ai_infra/serve_vllm.py) 顶部。默认 host `0.0.0.0`、context `4096`、TP=1、单并发、`CUDA_VISIBLE_DEVICES=0`；模型配置上限为 1,048,576。`QUANTIZATION=None` 让框架读取混合精度配置，避免错误地将全部层当普通 FP8 或 NVFP4。两端 reasoning/tokenizer/parser 名称按各自源码和模型卡设置。临时追加上游参数用 `--`，例如 `uv run vllm -- --max-model-len 8192`。
+模型、context、TP、GPU 可见列表和批处理参数位于 [serve_sglang.py](lab_tools/serve_sglang.py) / [serve_vllm.py](lab_tools/serve_vllm.py) 顶部。默认 host `0.0.0.0`、context `4096`、TP=1、单并发、`CUDA_VISIBLE_DEVICES=0`；模型配置上限为 1,048,576。`QUANTIZATION=None` 让框架读取混合精度配置，避免错误地将全部层当普通 FP8 或 NVFP4。两端 reasoning/tokenizer/parser 名称按各自源码和模型卡设置。临时追加上游参数用 `--`，例如 `uv run vllm -- --max-model-len 8192`。
 
 `init` 保持默认 ds4/llama P0 行为；选择原生框架后，各自从固定 gitlink clone 到新的 `artifacts/init/<run-id>/<engine>/source`，在各自的 `venv` 安装依赖并构建 CUDA 扩展。SGLang 固定源码要求 torch 2.14.1，vLLM 要求 torch 2.13.0，两套环境分别安装 CUDA 13.0 PyTorch wheel，用本机 CUDA toolkit 与 sm_121a 构建。SGLang 从当前源码的 `python/sglang/kernels/aot` 构建 sglang-kernel，再安装 editable Python package；HTTP 服务配置关闭可选 Rust 扩展。vLLM 使用 `requirements/build/cuda.txt` 及 editable 源码构建，关闭预编译扩展选择。构建可能需要下载依赖和子模块；`--offline` 禁止这些网络来源，缺项保存为 blocked。
 
@@ -173,7 +175,7 @@ uv run freetoken --server-help                 # 已安装环境中的 ft serve 
 uv run freetoken                               # 默认 0.0.0.0:6666，前台运行
 ```
 
-[serve_freetoken.py](ai_infra/serve_freetoken.py) 顶部设置模型目录、CUDA 可见设备、host/port、context、dtype、MoE 策略和 kernel cache。默认 context `4096`（本地模型上限 262144），prefill chunk 4096，单并发，输出预算 512，memory ratio 0.80，text-only、reasoning off；需要图像输入时自行调整 `TEXT_MODEL_ONLY`。临时参数放在 `--` 后，例如 `uv run freetoken -- --max-seq-len-override 8192`。
+[serve_freetoken.py](lab_tools/serve_freetoken.py) 顶部设置模型目录、CUDA 可见设备、host/port、context、dtype、MoE 策略和 kernel cache。默认 context `4096`（本地模型上限 262144），prefill chunk 4096，单并发，输出预算 512，memory ratio 0.80，text-only、reasoning off；需要图像输入时自行调整 `TEXT_MODEL_ONLY`。临时参数放在 `--` 后，例如 `uv run freetoken -- --max-seq-len-override 8192`。
 
 `init --engines freetoken` 不下载模型。它从固定子模块 clone 到独立准备目录，创建专用 venv，安装 torch 2.14.1/CUDA 13.0 wheel 与上游 `[accel]` 依赖，再从源码构建 `_pinned_tensor`、`_cpu_moe`、`_row_store`。调用上游 `compile_and_package_kernels`，将其默认 AOT spec 集构建到准备目录的独立 kernel cache，设置 `TVM_FFI_CUDA_ARCH_LIST=12.1`；源码保持原样，不使用 x86_64 nightly wheel。每个 spec 顺序构建，内部编译并行度由 `--jobs` 控制。最后校验实际 import path、CUDA Tensor、FreeToken 自有 GPU store kernel 输出，以及扩展/cache 文件的 SHA256。
 

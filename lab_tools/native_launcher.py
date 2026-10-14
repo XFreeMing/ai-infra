@@ -11,9 +11,9 @@ import subprocess
 import sys
 import tempfile
 
-from ai_infra.cli import WorkflowError, _git, _reject_hidden_changes
-from ai_infra.native_model import MODEL_DIR, inspect_model, profile
-from ai_infra.prepare import sha256
+from lab_tools.cli import WorkflowError, _git, _reject_hidden_changes
+from lab_tools.native_model import MODEL_DIR, inspect_model, profile
+from lab_tools.prepare import sha256
 
 
 def positive_port(value: str) -> int:
@@ -123,7 +123,7 @@ def launch(engine: str, arguments: list[str], *, port: int, cuda_devices: str,
             env = {**prepared['framework'].get('runtime_environment', {}), **env}
         env.update(runtime_environment or {})
         if engine == 'freetoken':
-            from ai_infra.freetoken_model import MODEL_DIR as DEFAULT_MODEL, inspect_freetoken_model, profile as model_profile
+            from lab_tools.freetoken_model import MODEL_DIR as DEFAULT_MODEL, inspect_freetoken_model, profile as model_profile
             inspector = inspect_freetoken_model
         else:
             DEFAULT_MODEL, inspector, model_profile = MODEL_DIR, inspect_model, profile

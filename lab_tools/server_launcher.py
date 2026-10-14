@@ -10,8 +10,8 @@ import shlex
 import sys
 import tempfile
 
-from ai_infra.cli import WorkflowError, _git
-from ai_infra.prepare import fingerprint, sha256
+from lab_tools.cli import WorkflowError, _git
+from lab_tools.prepare import fingerprint, sha256
 
 
 def resolve_server(root: Path, engine: str, binary: Path | None,

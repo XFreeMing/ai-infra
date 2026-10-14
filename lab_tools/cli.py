@@ -312,7 +312,7 @@ def main(argv: list[str] | None = None, *, root: Path | None = None) -> int:
     parser = argparse.ArgumentParser(prog="ai-infra", description="Local AI Infra research and experiment helpers.")
     commands = parser.add_subparsers(dest="action", required=True)
     commands.add_parser("doctor", help="Report local tools, platform and pinned source versions.")
-    from ai_infra.prepare import add_init_arguments, prepare
+    from lab_tools.prepare import add_init_arguments, prepare
     add_init_arguments(commands.add_parser("init", help="准备 ds4 P0 的本地模型、CUDA 工具链与固定版本构建。"))
     new_parser = commands.add_parser("new", help="Create a study or experiment from a template.")
     new_parser.add_argument("kind", choices=("study", "experiment"))

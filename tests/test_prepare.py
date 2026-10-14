@@ -12,7 +12,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from ai_infra import cli, prepare as prep
+from lab_tools import cli, prepare as prep
 
 
 class PreparationTests(unittest.TestCase):

@@ -22,8 +22,8 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from ai_infra.cli import WorkflowError
-from ai_infra.native_model import profile, verify_download
+from lab_tools.cli import WorkflowError
+from lab_tools.native_model import profile, verify_download
 
 
 def main(argv: list[str] | None = None) -> int:

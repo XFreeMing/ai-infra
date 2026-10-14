@@ -12,9 +12,9 @@ import time
 import tomllib
 from contextlib import contextmanager
 
-from ai_infra.cli import WorkflowError, _git, _reject_hidden_changes
-from ai_infra.native_model import MODEL_DIR, PROFILE, inspect_model, profile
-from ai_infra.prepare import Recorder, cuda_home, sha256
+from lab_tools.cli import WorkflowError, _git, _reject_hidden_changes
+from lab_tools.native_model import MODEL_DIR, PROFILE, inspect_model, profile
+from lab_tools.prepare import Recorder, cuda_home, sha256
 
 # Dependency/layout expectations come from these exact gitlinks, not latest docs.
 SOURCES = {
@@ -198,7 +198,7 @@ receipt.write_text(json.dumps({'kernel_count': len(paths), 'paths': list(map(str
 
 def model_configuration(root: Path, engine: str, args=None) -> dict:
     if engine == 'freetoken':
-        from ai_infra import freetoken_model, serve_freetoken
+        from lab_tools import freetoken_model, serve_freetoken
         path = serve_freetoken.MODEL_PATH
         if args and args.model:
             path = args.model
@@ -311,7 +311,7 @@ def manifest_base(root: Path, directory: Path, args, engines: set[str]) -> dict:
             'model_download_requested': False, 'model_id': model['model_id'],
             'model_revision': model['revision'], 'model_dir': primary['path'], 'models': models,
             'model_weight_bytes': model['weight_bytes'],
-            'tooling_sha256': {str(p.relative_to(root)): sha256(p) for p in (root / 'ai_infra').glob('*.py')},
+            'tooling_sha256': {str(p.relative_to(root)): sha256(p) for p in (root / 'lab_tools').glob('*.py')},
             'model_profile_sha256': sha256(root / primary['profile_file']),
             'platform_support_notes': ['FreeToken upstream install docs target Linux x86_64; ARM64 source build and CUDA probes must pass.']
                                       if 'freetoken' in engines else [],
@@ -382,7 +382,7 @@ def _prepare_native(root: Path, args, engines: set[str], started: float | None =
             path = Path(configuration['path'])
             expected = configuration['profile']
             if engine == 'freetoken':
-                from ai_infra.freetoken_model import MODEL_DIR as FT_MODEL_DIR, inspect_freetoken_model
+                from lab_tools.freetoken_model import MODEL_DIR as FT_MODEL_DIR, inspect_freetoken_model
                 inspector = inspect_freetoken_model
                 expected = expected if path.resolve() == FT_MODEL_DIR.resolve() else None
             else:

@@ -4,8 +4,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from ai_infra.cli import WorkflowError
-from ai_infra.prepare import sha256
+from lab_tools.cli import WorkflowError
+from lab_tools.prepare import sha256
 
 MODEL_ID = 'nv-community/DeepSeek-V4.1-Flash-NVFP4'
 MODEL_REVISION = '962b2d0e8b06e475b77ab32e694b5df51f7949fb'

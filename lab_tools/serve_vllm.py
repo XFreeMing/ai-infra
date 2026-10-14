@@ -35,7 +35,7 @@ def server_arguments() -> list[str]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    from ai_infra.native_launcher import launch
+    from lab_tools.native_launcher import launch
     return launch('vllm', server_arguments(), port=PORT, cuda_devices=CUDA_VISIBLE_DEVICES,
                   python=PYTHON_EXECUTABLE, preparation_dir=PREPARATION_DIR,
                   configuration_file=Path(__file__), argv=argv)

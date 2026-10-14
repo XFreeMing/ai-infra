@@ -30,7 +30,7 @@ def server_arguments() -> list[str]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    from ai_infra.server_launcher import launch
+    from lab_tools.server_launcher import launch
     return launch("llama", MODEL_PATH, server_arguments(), cuda_devices=CUDA_VISIBLE_DEVICES,
                   binary=SERVER_BINARY, preparation_dir=PREPARATION_DIR, argv=argv,
                   configuration_file=Path(__file__))

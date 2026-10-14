@@ -7,19 +7,19 @@ requires-python = ">=3.12"
 dependencies = []
 
 [project.scripts]
-init = "ai_infra.cli:init_main"
-ds4 = "ai_infra.serve_ds4:main"
-llama = "ai_infra.serve_llama:main"
-sglang = "ai_infra.serve_sglang:main"
-vllm = "ai_infra.serve_vllm:main"
-freetoken = "ai_infra.serve_freetoken:main"
+init = "lab_tools.cli:init_main"
+ds4 = "lab_tools.serve_ds4:main"
+llama = "lab_tools.serve_llama:main"
+sglang = "lab_tools.serve_sglang:main"
+vllm = "lab_tools.serve_vllm:main"
+freetoken = "lab_tools.serve_freetoken:main"
 
 [build-system]
 requires = ["setuptools>=77,<85"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["ai_infra"]
+packages = ["lab_tools"]
 
 [[tool.uv.index]]
 name = "tuna"

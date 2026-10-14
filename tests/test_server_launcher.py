@@ -8,9 +8,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from ai_infra import serve_ds4, serve_llama, server_launcher as launcher
-from ai_infra.cli import WorkflowError
-from ai_infra.prepare import fingerprint
+from lab_tools import serve_ds4, serve_llama, server_launcher as launcher
+from lab_tools.cli import WorkflowError
+from lab_tools.prepare import fingerprint
 
 
 class ServerLauncherTests(unittest.TestCase):

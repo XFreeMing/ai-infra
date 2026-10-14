@@ -11,9 +11,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from ai_infra import native_launcher as launcher, native_model as model, native_prepare as prep
-from ai_infra import prepare, serve_sglang, serve_vllm, serve_freetoken, freetoken_model
-from ai_infra.cli import WorkflowError
+from lab_tools import native_launcher as launcher, native_model as model, native_prepare as prep
+from lab_tools import prepare, serve_sglang, serve_vllm, serve_freetoken, freetoken_model
+from lab_tools.cli import WorkflowError
 
 
 class NativeServingTests(unittest.TestCase):
@@ -123,7 +123,7 @@ class NativeServingTests(unittest.TestCase):
         path = self.root / model.PROFILE
         path.parent.mkdir(parents=True)
         path.write_text(json.dumps(self.expected))
-        (self.root / 'ai_infra').mkdir()
+        (self.root / 'lab_tools').mkdir()
         self.parser = argparse.ArgumentParser()
         prepare.add_init_arguments(self.parser)
 

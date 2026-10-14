@@ -13,7 +13,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from ai_infra import cli
+from lab_tools import cli
 
 
 class WorkflowTests(unittest.TestCase):
@@ -222,7 +222,7 @@ class WorkflowTests(unittest.TestCase):
         module_root = Path(cli.__file__).resolve().parents[1]
         runner = (
             f"import sys; sys.path.insert(0, {str(module_root)!r}); "
-            "from pathlib import Path; from ai_infra.cli import main; "
+            "from pathlib import Path; from lab_tools.cli import main; "
             f"raise SystemExit(main(['run', 'check'], root=Path({str(self.root)!r})))"
         )
         process = subprocess.Popen([sys.executable, "-c", runner], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
