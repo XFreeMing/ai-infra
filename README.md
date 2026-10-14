@@ -17,6 +17,8 @@
 
 需要 Git、Python 3.12+。可以使用已有 Python，也可以使用 uv 管理的环境；工作台本身没有第三方 Python 运行依赖。
 
+uv 默认 PyPI index 已配置为清华 TUNA：`https://pypi.tuna.tsinghua.edu.cn/simple`，设置位于 [pyproject.toml](pyproject.toml)。`init` 在独立上游 clone 中执行的依赖安装也显式传入此默认源，启动计划和日志会显示 `--default-index`；需要换源时修改项目配置中的 default index。手动 ModelScope 下载脚本的独立 uv 环境也配置了同一镜像。PyTorch CUDA 包仍通过 `--torch-backend cu130` 选择官方 CUDA 专用源，其大型 wheel 不保证由这个 PyPI 镜像加速。此配置影响 Python 包安装，模型权重仍由原来的手动下载脚本处理。[TUNA 官方说明](https://mirrors.tuna.tsinghua.edu.cn/help/pypi/)、[uv 脚本 index 配置](https://docs.astral.sh/uv/guides/scripts/#using-alternative-package-indexes)
+
 ```sh
 git clone git@github.com:XFreeMing/ai-infra.git
 cd ai-infra
@@ -58,6 +60,8 @@ uv run init
 
 每次准备生成独立的 `artifacts/init/<run-id>/`，保存输入原始字节、环境、完整命令、构建日志、二进制 hash 与 `ldd` 路径。源子模块保持固定提交，旧版 ds4 在单独 clone 构建。模型权重不复制进构建目录；缺少的 support 下载到被 Git 忽略的 `artifacts/models/<HF-revision>/`。
 
+`init` 默认显示每步的用途、完整命令、工作目录、超时设置和日志绝对路径。下载/编译的 stdout 与 stderr 实时显示，同时保存完整原始日志；Python 子进程启用无缓冲输出。步骤运行期间每 20 秒显示耗时、距上次新增输出的时间和「不限时」；设置有限超时时则显示剩余预算。结束时显示状态、耗时和退出码。例如 `freetoken-build-deps` 会明确说明正在安装 PyTorch/CUDA 构建依赖，不下载模型权重，并显示上游工具报告的 `Downloading` / `Downloaded` 信息。下载百分比与速度以工具实际输出为准。
+
 ```sh
 uv run init --check-only                  # 只盘点；退出码 2，表示还未准备完
 uv run init --models-dir /data/models --cuda-home /usr/local/cuda --jobs 4
@@ -66,13 +70,13 @@ uv run --offline python main.py init      # 原入口仍可用
 uv run init --resume artifacts/init/<run-id>  # 恢复未完成的准备，保留历史日志
 ```
 
-`--build-timeout` 默认 1800 秒，全部构建共享预算；`--download-timeout` 默认 1800 秒，support 下载支持续传；Git 初始化每个子模块预算 900 秒。已有本地模型仍需完整读取约 81 GiB 以计算 SHA256。缺少编译器、toolkit、设备权限或依赖时保存 `blockers` 并返回 2；不会自动修改系统驱动、安装系统包、清空 swap 或停止其他进程。首次 `uv` 安装需要已有 setuptools 缓存或网络。
+初始化的依赖安装、源码获取、构建与 DSpark support 下载默认不限时，持续等待完成；可随时用 Ctrl+C 中断并保留日志。`--build-timeout 0` / `--download-timeout 0` 也表示不限时；需要有限预算时可显式设置秒数，例如 `--build-timeout 7200`。不限时不会忽略安装/编译错误，失败仍保存 `blockers` 并返回 2。已有本地模型仍需完整读取约 81 GiB 以计算 SHA256；support 下载支持续传。首次 `uv` 安装需要已有 setuptools 缓存或网络。不会自动修改系统驱动、安装系统包、清空 swap 或停止其他进程。
 
 `prepared`/退出码 0 仅表示前置准备完成。实际 token 对齐、两个引擎加载同一模型、32-token 短生成、质量检查及 R2 的 rewind 触发仍需按 [R0.md](research/studies/ds4-inference/R0.md) 执行；CUDA 小探针不等于模型兼容性或性能验证。长实验先提交工作台改动，在独立且干净的主仓库 clone 中重新准备。
 
 固定版本的 [`score_llama.cpp:187`](https://github.com/antirez/ds4/blob/fc80bd695da76ee14bcb86820bf900a5cdfda806/gguf-tools/quality-testing/score_llama.cpp#L187) 使用旧 API `use_mmap=true`；固定 llama.cpp 已改为 [`load_mode`](https://github.com/ggml-org/llama.cpp/blob/972b5fcc19670e597f8de9bf5cacfb85752a5fff/include/llama.h#L329)。`init` 对 scorer 的固定源码 hash 做检查，在产物目录生成仅替换为 `LLAMA_LOAD_MODE_MMAP` 的副本，用锁定的 llama.cpp 头文件和库编译；manifest 保存原始/适配源码与 patch 的 hash。评分和分词代码保持原样，质量正确性仍需 P7 验证。
 
-`--resume` 只接受 `blocked`/`interrupted` 目录；复用前检查源码提交、clean 状态和二进制 hash，完整模型仍重新校验。已就绪的准备目录不允许恢复，避免改动可能用于运行的产物。未完成的引擎构建保留原目录，需新建准备；scorer 或下载失败可直接恢复。
+ds4/llama P0 的 `--resume` 只接受 `blocked`/`interrupted` 目录；复用前检查源码提交、clean 状态和二进制 hash，完整模型仍重新校验。已就绪的准备目录不允许恢复，避免改动可能用于运行的产物。P0 未完成的引擎构建保留原目录，需新建准备；scorer 或下载失败可直接恢复。SGLang/vLLM/FreeToken 的源码构建可在原目录续跑，命令见下方原生框架说明。
 
 ## 启动 ds4 / llama.cpp 服务
 
@@ -120,8 +124,11 @@ llama 初始 `REASONING="off"`。ds4 此版本通过请求选择 non-thinking，
 uv run init --engines sglang vllm --dry-run
 
 # 以后手动执行框架初始化；不会下载模型：
-uv run init --engines sglang vllm --jobs 4 --build-timeout 7200
+uv run init --engines sglang vllm --jobs 4
 # 单独准备也可：--engines sglang 或 --engines vllm
+# 失败后复用源码和 venv，并保留旧 manifest 与日志：
+uv run init --engines sglang --resume artifacts/init/<sglang-run-id> --jobs 4
+uv run init --engines vllm --resume artifacts/init/<vllm-run-id> --jobs 4
 # --engines all 包含 ds4/llama P0、SGLang、vLLM 和 FreeToken。
 
 # 唯一主动下载新模型的入口；由用户手动运行：
@@ -144,19 +151,21 @@ uv run vllm 5555
 
 准备流程保存预算、源码/子模块 commit、安装日志、freeze、实际 import path、torch CUDA 版本、CUDA tensor smoke 和扩展 SHA256；框架 `prepared` 不要求模型已下载，也不代表模型推理通过。启动入口选择匹配当前 gitlink 的环境，校验扩展身份、本地 config/index/分片，并再次检查 CUDA/import path。设置 `HF_HUB_OFFLINE=1`、`TRANSFORMERS_OFFLINE=1`，不通过在线 repo ID 隐式下载权重。启动记录仍写入 `artifacts/servers/<launch-id>/launch.json`。`PYTHON_EXECUTABLE` 可指定自己的 **venv/bin/python 路径**，`PREPARATION_DIR` 可固定准备目录；`--server-help` 只查看已安装上游帮助。
 
-本次只准备脚本并执行工具测试/命令预览，未安装 SGLang/vLLM、未构建其 CUDA 扩展、未下载此模型，也未执行其推理。实际 ARM64 wheel 可用性、CUDA toolkit/wheel 兼容性和 V4.1 NVFP4 在 sm_121 上的完整 kernel 支持仍待验证。
+初版交付只准备脚本并执行工具测试/命令预览。2026-10-14 已开始实际初始化失败恢复，排查日志和已执行检查见 [初始化恢复记录](research/studies/ds4-inference/NATIVE_SERVING.md)；完整准备结果以 run 的 manifest 为准。此模型未下载，也未执行其推理，V4.1 NVFP4 在 sm_121 上的完整 kernel 支持仍待验证。
+
+原生初始化在同一 workspace 内串行执行，等待期间每 20 秒显示详情。uv 自身的缓存锁每次等待 3600 秒，只有明确的缓存锁超时才重试；默认总预算不限时，显式 `--build-timeout` 仍生效。`UV_LOCK_TIMEOUT=0` 在 uv 中表示立即超时，不能用来关闭超时。`--resume` 只接受相同引擎、CUDA_HOME 和源码提交的 `blocked`/`interrupted` 原生目录，拒绝修改已就绪目录。vLLM 会先检查 `elfutils/libdwfl.h`；系统缺少头文件时，将与已安装 libdw/libelf runtime 同版本的 Debian 开发包下载、解压到准备目录，记录 SHA256 并进行 C++ 头文件检查，无需 sudo。其 setuptools/CMake 编译目录保存在 `vllm/build-cache`，失败后续跑可复用对象文件。
 
 ## FreeToken：固定子模块与 CUDA 服务入口
 
 [FreeToken](https://github.com/FlashML-org/FreeToken) 已加入 `sources/freetoken`，固定 commit `95ac86f21567bc244c7a9d91972838fbf049b4ed`。初步源码阅读和兼容性边界见 [研究记录](research/studies/freetoken-inference/README.md)。它提供 MoE expert offload、CPU/GPU 协同执行、缓存和 OpenAI/Anthropic HTTP 服务；在 GB10 上，原生 BF16 MoE 的 auto 策略选择 GPU fused resident 路径。
 
-按用户选择，默认复用 **`/data/models/hugging-Qwen3.6-35B-A3B`**：完整的 26 个 safetensors 分片，约 67.0 GiB，BF16，无额外量化。config/index/tokenizer 的 SHA256 与分片大小保存在 [FreeToken 模型清单](research/studies/freetoken-inference/NATIVE_MODEL.json)。原始下载的远端 revision 未知，本轮没有读取全部权重核对 SHA256，也没有加载模型。
+按用户选择，默认复用 **`/data/models/Qwen3.6-35B-A3B-BF16`**：完整的 26 个 safetensors 分片，约 67.0 GiB，BF16，无额外量化。config/index/tokenizer 的 SHA256 与分片大小保存在 [FreeToken 模型清单](research/studies/freetoken-inference/NATIVE_MODEL.json)。原始下载的远端 revision 未知，本轮没有读取全部权重核对 SHA256，也没有加载模型。
 
 ```sh
 uv run init --engines freetoken --dry-run       # 查看计划，不安装、构建或下载
 uv run init --engines freetoken --check-only    # 盘点本地模型；退出 2 表示尚未构建
-uv run init --engines freetoken --jobs 4 --build-timeout 7200
-# 可合并：uv run init --engines freetoken sglang vllm --build-timeout 10800
+uv run init --engines freetoken --jobs 4
+# 可合并：uv run init --engines freetoken sglang vllm
 
 uv run freetoken --dry-run
 uv run freetoken 6666 --dry-run

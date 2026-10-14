@@ -1,6 +1,10 @@
 # /// script
 # requires-python = ">=3.12"
 # dependencies = ["modelscope==1.40.2"]
+# [[tool.uv.index]]
+# name = "tuna"
+# url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+# default = true
 # ///
 """手动执行：uv run scripts/download_deepseek_v41_flash_nvfp4.py。"""
 from pathlib import Path

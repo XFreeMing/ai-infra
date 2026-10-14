@@ -44,4 +44,4 @@ V4.1 容量边界另有区别：上游 [weight loader](https://github.com/FlashM
 
 未解决：ARM64 wheel/编译链路、全部 GPU kernel、模型加载、内存峰值、32-token 输出质量与性能尚未执行；本地模型远端 revision 与全文件权重 hash 未确定。
 
-下一步：审阅 init dry-run，准备环境时使用 7200 秒墙钟预算，任一步失败立即停止并保留日志；通过 CUDA/source provenance 后，在独立干净 checkout 上串行执行单请求 32-token smoke，再决定是否扩展测量。
+下一步：审阅 init dry-run；按用户要求，环境初始化默认不限时，Ctrl+C 可中断，任一步失败停止并保留日志。需要有限预算时显式指定 `--build-timeout`。通过 CUDA/source provenance 后，在独立干净 checkout 上串行执行预算明确的单请求 32-token smoke，再决定是否扩展测量。

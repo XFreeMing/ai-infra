@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import codecs
 from datetime import datetime, timezone
 import difflib
 import hashlib
@@ -9,8 +10,10 @@ import json
 import os
 from pathlib import Path
 import platform
+import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.request
@@ -21,6 +24,8 @@ STUDY = Path('research/studies/ds4-inference')
 OLD_DS4 = 'd6b516abb4a286a423fdb4071a19f86a3d9ab9c0'
 SUPPORT = 'DeepSeek-V4-Flash-DSpark-support-0731.gguf'
 SCORE_LLAMA_SHA256 = 'a23dd490a85fc0f3a3c8c1af870c6d645b6721eb93bb4d3ed439b684082e57d0'
+OUTPUT_POLL_SECONDS = 0.2
+PROGRESS_INTERVAL_SECONDS = 20.0
 CUDA_PROBE = r'''#include <cuda_runtime.h>
 #include <stdio.h>
 #include <string.h>
@@ -47,6 +52,13 @@ def positive_int(value: str) -> int:
     return number
 
 
+def optional_timeout(value: str) -> int | None:
+    number = int(value)
+    if number < 0:
+        raise argparse.ArgumentTypeError('超时必须是非负整数；0 表示不限时。')
+    return number or None
+
+
 def add_init_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument('--engines', nargs='+', choices=('ds4', 'llama', 'sglang', 'vllm', 'freetoken', 'all'),
                         default=['ds4', 'llama'], help='默认 ds4/llama P0；可选 sglang、vllm、freetoken 或 all。')
@@ -55,8 +67,10 @@ def add_init_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument('--model', type=Path, help='P0：同一 R0 GGUF；FreeToken：本地 safetensors 模型目录（不下载）。')
     parser.add_argument('--cuda-home', type=Path, help='CUDA toolkit 根目录；默认探测 CUDA_HOME、PATH 和 /usr/local/cuda。')
     parser.add_argument('--jobs', type=positive_int, default=4)
-    parser.add_argument('--build-timeout', type=positive_int, default=1800, help='全部构建共享的墙钟预算，默认 1800 秒。')
-    parser.add_argument('--download-timeout', type=positive_int, default=1800, help='DSpark support 下载预算，默认 1800 秒；重试续传 incomplete。')
+    parser.add_argument('--build-timeout', type=optional_timeout, default=None,
+                        help='构建墙钟预算（秒）；默认不限时，0 也表示不限时。')
+    parser.add_argument('--download-timeout', type=optional_timeout, default=None,
+                        help='DSpark support 下载预算（秒）；默认不限时，0 也表示不限时；支持续传。')
     parser.add_argument('--offline', action='store_true', help='禁止 Git/HF 下载；缺项保存为 blocked。')
     parser.add_argument('--check-only', action='store_true', help='只盘点及冻结输入；不下载、不全文件哈希、不构建。')
     parser.add_argument('--resume', type=Path, help='恢复 blocked/interrupted 准备；验证并复用已构建二进制，保留旧日志。')
@@ -138,31 +152,101 @@ class Recorder:
     def save(self) -> None:
         _write_manifest(self.directory, self.manifest)
 
-    def command(self, label: str, argv: list[str], cwd: Path, timeout: float = 30,
+    def command(self, label: str, argv: list[str], cwd: Path, timeout: float | None = None,
                 env: dict | None = None) -> dict:
         index = len(self.manifest['commands'])
+        overrides = {'PYTHONUNBUFFERED': '1', **(env or {})}
         record = {'label': label, 'argv': argv, 'cwd': str(cwd), 'timeout_seconds': timeout,
-                  'environment_overrides': env or {}, 'log': f'{index:02d}-{label}.log'}
+                  'environment_overrides': overrides, 'log': f'{index:02d}-{label}.log',
+                  'status': 'running', 'started_at': datetime.now(timezone.utc).isoformat()}
         self.manifest['commands'].append(record)
         self.save()
         started = time.monotonic()
-        print(f'准备步骤：{label}（日志 {record["log"]}）', flush=True)
+        log_path = self.directory / record['log']
+        print(f'\n准备步骤 [{index + 1}]：{label}', flush=True)
+        descriptions = {
+            'build-deps': '安装构建依赖（包括 PyTorch/CUDA 运行库），不下载模型权重。',
+            'framework-source-build': '安装框架依赖并从固定源码构建扩展，不下载模型权重。',
+            'kernel-source-build': '从源码编译 CUDA kernels / kernel cache。',
+            'cuda-import-probe': '检查实际 import 路径与 CUDA 小探针，不加载模型。',
+        }
+        for suffix, description in descriptions.items():
+            if label.endswith(suffix):
+                print(f'内容：{description}', flush=True)
+                break
+        budget = '不限时（Ctrl+C 可中断）' if timeout is None else f'{timeout:.1f} 秒'
+        print(f'命令：{shlex.join(argv)}\n工作目录：{cwd}\n'
+              f'超时预算：{budget}\n日志：{log_path.resolve()}', flush=True)
+        decoder = codecs.getincrementaldecoder('utf-8')(errors='replace')
+
+        def forward_output(reader) -> bool:
+            # Keep the raw log unchanged, even for split UTF-8 / carriage-return
+            # progress output. Read a fixed snapshot so a noisy child cannot
+            # starve the timeout check by continuously appending to the log.
+            end = os.fstat(reader.fileno()).st_size
+            copied = False
+            while reader.tell() < end:
+                data = reader.read(min(65536, end - reader.tell()))
+                if not data:
+                    break
+                copied = True
+                sys.stdout.write(decoder.decode(data))
+            if copied:
+                sys.stdout.flush()
+            return copied
+
         try:
-            with (self.directory / record['log']).open('wb') as log:
+            with log_path.open('wb') as log, log_path.open('rb') as reader:
                 process = subprocess.Popen(argv, cwd=cwd, stdout=log, stderr=subprocess.STDOUT,
-                                           start_new_session=True, env={**os.environ, **(env or {})})
+                                           start_new_session=True, env={**os.environ, **overrides})
                 try:
-                    record['exit_code'] = process.wait(timeout=max(0.01, timeout))
-                    record['status'] = 'succeeded' if process.returncode == 0 else 'failed'
-                except subprocess.TimeoutExpired:
-                    record.update(exit_code=124, status='timed_out')
+                    deadline = started + max(0.01, timeout) if timeout is not None else None
+                    next_progress = started + PROGRESS_INTERVAL_SECONDS
+                    last_output = started
+                    while True:
+                        if forward_output(reader):
+                            last_output = time.monotonic()
+                        now = time.monotonic()
+                        code = process.poll()
+                        if code is not None:
+                            record.update(exit_code=code, status='succeeded' if code == 0 else 'failed')
+                            break
+                        remaining = deadline - now if deadline is not None else None
+                        if remaining is not None and remaining <= 0:
+                            record.update(exit_code=124, status='timed_out')
+                            break
+                        if now >= next_progress:
+                            budget = '不限时' if remaining is None else f'剩余预算 {remaining:.1f} 秒'
+                            print(f'\n进行中：{label}｜已用 {now - started:.1f} 秒｜'
+                                  f'{now - last_output:.1f} 秒无新增输出｜{budget}', flush=True)
+                            next_progress = now + PROGRESS_INTERVAL_SECONDS
+                        try:
+                            process.wait(timeout=OUTPUT_POLL_SECONDS if remaining is None
+                                         else min(OUTPUT_POLL_SECONDS, remaining))
+                        except subprocess.TimeoutExpired:
+                            pass
+                except KeyboardInterrupt:
+                    record.update(exit_code=130, status='interrupted')
+                    raise
                 finally:
                     _stop_process_group(process)
+                    forward_output(reader)
+                    tail = decoder.decode(b'', final=True)
+                    if tail:
+                        sys.stdout.write(tail)
+                        sys.stdout.flush()
         except OSError as error:
             record.update(exit_code=127, status='launch_error', error=str(error))
         finally:
             record['duration_seconds'] = round(time.monotonic() - started, 3)
+            record['finished_at'] = datetime.now(timezone.utc).isoformat()
             self.save()
+            status = {'succeeded': '完成', 'failed': '失败', 'timed_out': '超时',
+                      'launch_error': '启动失败', 'interrupted': '已中断'}.get(record['status'], '未完成')
+            print(f'\n步骤{status}：{label}｜耗时 {record["duration_seconds"]:.1f} 秒｜'
+                  f'退出码 {record.get("exit_code", "未知")}\n日志：{log_path.resolve()}', flush=True)
+            if record.get('error'):
+                print(f'详情：{record["error"]}', flush=True)
         return record
 
     def require(self, *args, **kwargs) -> dict:
@@ -196,7 +280,7 @@ def prepare_sources(root: Path, reference: dict, recorder: Recorder, offline: bo
             if offline:
                 raise WorkflowError(f'离线模式缺少 sources/{name}；先初始化固定子模块。')
             recorder.require(f'init-{name.replace(".", "-")}',
-                             ['git', 'submodule', 'update', '--init', '--depth', '1', '--', f'sources/{name}'], root, 900)
+                             ['git', 'submodule', 'update', '--init', '--depth', '1', '--', f'sources/{name}'], root)
         _reject_hidden_changes(path)
         if _git(path, 'rev-parse', 'HEAD') != commit or _git(path, 'status', '--porcelain', '--untracked-files=all'):
             raise WorkflowError(f'sources/{name} 必须干净且位于 {commit}；不会重置本地修改。')
@@ -207,7 +291,7 @@ def prepare_sources(root: Path, reference: dict, recorder: Recorder, offline: bo
     except WorkflowError:
         if offline:
             raise WorkflowError('离线模式缺少 R2 旧提交对象。')
-        recorder.require('fetch-ds4-old', ['git', 'fetch', '--depth', '1', 'origin', OLD_DS4], ds4, 900)
+        recorder.require('fetch-ds4-old', ['git', 'fetch', '--depth', '1', 'origin', OLD_DS4], ds4)
     parents = [line[7:] for line in _git(ds4, 'cat-file', '-p', reference['engines']['ds4']).splitlines()
                if line.startswith('parent ')]
     if parents != [OLD_DS4]:
@@ -220,7 +304,7 @@ def prepare_sources(root: Path, reference: dict, recorder: Recorder, offline: bo
 
 
 def prepare_support(root: Path, models: Path, reference: dict, recorder: Recorder, offline: bool,
-                    timeout: int = 1800) -> dict:
+                    timeout: int | None = None) -> dict:
     artifact = reference['artifact']
     api = f'https://huggingface.co/api/models/{artifact["repo"]}/revision/{artifact["revision"]}?blobs=true'
     cache = root / 'artifacts' / 'models' / artifact['revision']
@@ -233,7 +317,7 @@ def prepare_support(root: Path, models: Path, reference: dict, recorder: Recorde
             raise WorkflowError('DSpark support 缓存身份与当前冻结 revision 不同。')
     else:
         print('检查固定 HF revision 的 DSpark support 身份。', flush=True)
-        with urllib.request.urlopen(api, timeout=30) as response:
+        with urllib.request.urlopen(api, timeout=None if timeout is None else min(30, timeout)) as response:
             raw = response.read(4 * 1024 * 1024 + 1)
         if len(raw) > 4 * 1024 * 1024:
             raise WorkflowError('HF API 响应超出预算。')
@@ -255,13 +339,13 @@ def prepare_support(root: Path, models: Path, reference: dict, recorder: Recorde
         url = f'https://huggingface.co/{artifact["repo"]}/resolve/{artifact["revision"]}/{SUPPORT}'
         pending = cache / (SUPPORT + '.incomplete')
         print(f'下载缺少的 DSpark support 到 {cache}，保留已有主模型。', flush=True)
-        deadline = time.monotonic() + timeout
+        deadline = time.monotonic() + timeout if timeout is not None else None
         offset = pending.stat().st_size if pending.is_file() else 0
         if offset > identity['size_bytes']:
             raise WorkflowError('已有 incomplete 大于冻结文件大小；请移走后重试。')
         if offset < identity['size_bytes']:
             request = urllib.request.Request(url, headers={'Range': f'bytes={offset}-'} if offset else {})
-            with urllib.request.urlopen(request, timeout=30) as response:
+            with urllib.request.urlopen(request, timeout=None if timeout is None else min(30, timeout)) as response:
                 if offset and (response.status != 206 or not response.headers.get('Content-Range', '').startswith(f'bytes {offset}-')):
                     raise WorkflowError('服务器未接受续传 Range；保留 incomplete，请移走后重试。')
                 with pending.open('ab' if offset else 'wb') as output:
@@ -269,8 +353,10 @@ def prepare_support(root: Path, models: Path, reference: dict, recorder: Recorde
                     progress_at = time.monotonic()
                     while chunk := response.read(8 * 1024 * 1024):
                         total += len(chunk)
-                        if total > identity['size_bytes'] or time.monotonic() > deadline:
-                            raise WorkflowError(f'DSpark support 下载超出大小或 {timeout} 秒预算；保留 incomplete。')
+                        if total > identity['size_bytes']:
+                            raise WorkflowError('DSpark support 下载超出冻结大小；保留 incomplete。')
+                        if deadline is not None and time.monotonic() > deadline:
+                            raise WorkflowError(f'DSpark support 下载超出 {timeout} 秒预算；保留 incomplete。')
                         output.write(chunk)
                         if time.monotonic() - progress_at >= 30:
                             print(f'DSpark support：{total / 1024**3:.2f}/{identity["size_bytes"] / 1024**3:.2f} GiB', flush=True)
@@ -324,14 +410,14 @@ def adapt_score_llama(source: Path, directory: Path) -> dict:
 
 
 def build_all(root: Path, sources: dict, home: Path, args: argparse.Namespace, recorder: Recorder) -> dict:
-    deadline = time.monotonic() + args.build_timeout
+    deadline = time.monotonic() + args.build_timeout if args.build_timeout is not None else None
     env = {'PATH': str(home / 'bin') + os.pathsep + os.environ.get('PATH', ''), 'CUDA_HOME': str(home)}
     previous = recorder.manifest.get('builds', {})
     builds = {}
 
     def run(label, argv, cwd):
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
+        remaining = deadline - time.monotonic() if deadline is not None else None
+        if remaining is not None and remaining <= 0:
             raise WorkflowError('构建总预算耗尽。')
         recorder.require(label, argv, cwd, remaining, env)
 
@@ -376,7 +462,8 @@ def build_all(root: Path, sources: dict, home: Path, args: argparse.Namespace, r
         for binary in binaries:
             if not binary.is_file():
                 raise WorkflowError(f'构建后缺少二进制：{binary}')
-            linkage = recorder.require(f'ldd-{binary.name}-{name}', ['ldd', str(binary)], destination, 30, env)
+            linkage = recorder.require(f'ldd-{binary.name}-{name}', ['ldd', str(binary)], destination,
+                                       None if deadline is None else 30, env)
             if 'not found' in (recorder.directory / linkage['log']).read_text(errors='replace'):
                 raise WorkflowError(f'二进制动态库缺失：{binary}')
             builds[name]['binaries'].append({'path': str(binary), 'sha256': sha256(binary), 'linkage_log': linkage['log']})
@@ -396,7 +483,8 @@ def build_all(root: Path, sources: dict, home: Path, args: argparse.Namespace, r
                                     '-lllama', '-lggml', '-lggml-base', '-lggml-cpu', '-ldl', '-lpthread'], newer)
     for name in ('score_official', 'score_llama'):
         binary = newer / 'gguf-tools/quality-testing' / name
-        linkage = recorder.require(f'ldd-{name}', ['ldd', str(binary)], newer, 30, env)
+        linkage = recorder.require(f'ldd-{name}', ['ldd', str(binary)], newer,
+                                   None if deadline is None else 30, env)
         text = (recorder.directory / linkage['log']).read_text(errors='replace')
         if 'not found' in text or (name == 'score_llama' and str(llama / 'build-p0/bin/libllama') not in text):
             raise WorkflowError(f'{name} 未链接到准备的动态库。')
@@ -412,9 +500,9 @@ def prepare(root: Path, args: argparse.Namespace) -> tuple[Path, int]:
     if args.dry_run:
         return prepare_plan(root, args, engines)
     if engines & {'sglang', 'vllm', 'freetoken'}:
-        if args.resume:
-            raise WorkflowError('原生框架环境采用新建隔离目录；--resume 仅用于 ds4/llama P0。')
         if engines & {'ds4', 'llama'}:
+            if args.resume:
+                raise WorkflowError('--resume 请指定原目录对应的单独引擎组，不要混合 P0 与 native。')
             legacy_directory, code = prepare_p0(root, args)
             if code:
                 return legacy_directory, code
@@ -515,8 +603,10 @@ def prepare_p0(root: Path, args: argparse.Namespace) -> tuple[Path, int]:
             raise WorkflowError('构建目录可用磁盘低于 10 GiB；需先腾出空间。')
         probe = directory / 'cuda-probe.cu'
         probe.write_text(CUDA_PROBE)
-        recorder.require('compile-cuda-probe', [str(home / 'bin/nvcc'), '-arch=sm_121a', str(probe), '-o', str(directory / 'cuda-probe')], root, 120)
-        runtime = recorder.command('run-cuda-probe', [str(directory / 'cuda-probe')], root, 30)
+        recorder.require('compile-cuda-probe', [str(home / 'bin/nvcc'), '-arch=sm_121a', str(probe), '-o', str(directory / 'cuda-probe')],
+                         root, None if args.build_timeout is None else 120)
+        runtime = recorder.command('run-cuda-probe', [str(directory / 'cuda-probe')],
+                                   root, None if args.build_timeout is None else 30)
         manifest['cuda_smoke_passed'] = runtime['exit_code'] == 0
         if runtime['exit_code']:
             manifest['blockers'].append('CUDA 设备/kernel 探针失败；核对设备访问权限、驱动与 runtime 日志。')

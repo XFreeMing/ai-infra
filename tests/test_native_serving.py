@@ -17,6 +17,90 @@ from ai_infra.cli import WorkflowError
 
 
 class NativeServingTests(unittest.TestCase):
+    def test_cache_lock_failure_retries_but_compiler_failure_stops(self):
+        recorder = prep.Recorder(self.root, self.root, {'commands': []})
+        log = self.root / 'lock.log'
+        log.write_text('Failed to acquire lock\nTimeout (3600s)\nUV_LOCK_TIMEOUT')
+        failure = {'exit_code': 2, 'log': log.name}
+        success = {'exit_code': 0}
+        with patch.object(recorder, 'command', side_effect=[failure, success]) as command, \
+             patch.object(recorder, 'save'), redirect_stdout(io.StringIO()):
+            result = prep.run_step(recorder, 'deps', ['uv', 'pip', 'install', 'torch'],
+                                   self.root, 0, None)
+        self.assertEqual(result, success)
+        self.assertEqual(command.call_count, 2)
+        self.assertIn('retry_reason', failure)
+        log.write_text('fatal error: missing compiler header')
+        with patch.object(recorder, 'command', return_value=failure) as command:
+            with self.assertRaises(WorkflowError):
+                prep.run_step(recorder, 'deps', ['uv', 'pip', 'install', 'torch'], self.root, 0, None)
+        self.assertEqual(command.call_count, 1)
+
+    def test_cache_lock_retries_respect_explicit_outer_budget(self):
+        recorder = prep.Recorder(self.root, self.root, {'commands': []})
+        log = self.root / 'lock.log'
+        log.write_text('Failed to acquire lock\nTimeout (300s)\nUV_LOCK_TIMEOUT')
+        with patch.object(recorder, 'command', return_value={'exit_code': 2, 'log': log.name}) as command, \
+             patch.object(recorder, 'save'), patch.object(prep.time, 'monotonic', side_effect=[1, 11]), \
+             redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(WorkflowError, '预算'):
+                prep.run_step(recorder, 'deps', ['uv', 'pip', 'install', 'torch'], self.root, 0, 10)
+        self.assertEqual(command.call_count, 1)
+
+    def test_native_resume_refuses_prepared_environment_before_mutations(self):
+        directory = self.root / 'artifacts/init/ready'
+        directory.mkdir(parents=True)
+        (directory / 'manifest.json').write_text(json.dumps({'preparation_id': 'native-cuda', 'status': 'prepared'}))
+        args = self.parser.parse_args(['--engines', 'sglang', '--resume', str(directory)])
+        with patch.object(prep, '_git', side_effect=self.git), patch.object(prep.Recorder, 'command') as command:
+            with self.assertRaisesRegex(WorkflowError, 'blocked/interrupted'):
+                prep._prepare_native(self.root, args, {'sglang'})
+        command.assert_not_called()
+        self.assertEqual(json.loads((directory / 'manifest.json').read_text())['status'], 'prepared')
+
+    def test_native_resume_preserves_failure_logs_and_reuses_venv(self):
+        directory = self.root / 'artifacts/init/blocked'
+        directory.mkdir(parents=True)
+        args = self.parser.parse_args(['--engines', 'sglang', '--resume', str(directory), '--cuda-home', '/cuda'])
+        with patch.object(prep, '_git', side_effect=self.git):
+            manifest = prep.manifest_base(self.root, directory, args, {'sglang'})
+        manifest['status'] = 'blocked'
+        manifest['commands'] = [{'label': 'original-failure', 'exit_code': 2, 'log': '00-original.log'}]
+        manifest['blockers'] = ['original failure']
+        (directory / 'manifest.json').write_text(json.dumps(manifest))
+        (directory / '00-original.log').write_text('keep failure evidence')
+        plan = manifest['plans']['sglang']
+        source = Path(plan['source'])
+        source.mkdir(parents=True)
+        python = Path(plan['python'])
+        python.parent.mkdir(parents=True)
+        python.write_text('fixture venv')
+        provenance = {'extensions': []}
+        (source.parent / 'provenance.json').write_text(json.dumps(provenance))
+        def git(root, *args):
+            if root == source:
+                return plan['commit'] if args == ('rev-parse', 'HEAD') else ''
+            return self.git(root, *args)
+        is_file = Path.is_file
+        with patch.object(prep, '_git', side_effect=git), patch.object(prep, '_reject_hidden_changes'), \
+             patch.object(prep.platform, 'system', return_value='Linux'), \
+             patch.object(prep.platform, 'machine', return_value='aarch64'), \
+             patch.object(prep.shutil, 'which', return_value='/bin/tool'), \
+             patch.object(prep.Recorder, 'require'), patch.object(prep, 'run_step') as step, \
+             patch.object(prep.Path, 'is_file', lambda path: path.name == 'nvcc' or is_file(path)), \
+             redirect_stdout(io.StringIO()):
+            _, code = prep._prepare_native(self.root, args, {'sglang'})
+        self.assertEqual(code, 0)
+        labels = [call.args[1] for call in step.call_args_list]
+        self.assertNotIn('sglang-venv', labels)
+        self.assertNotIn('sglang-clone', labels)
+        self.assertIn('sglang-build-deps', labels)
+        self.assertIn('sglang-cuda-import-probe', labels)
+        self.assertEqual((directory / '00-original.log').read_text(), 'keep failure evidence')
+        snapshot = json.loads(next(directory.glob('manifest-before-resume-*.json')).read_text())
+        self.assertEqual(snapshot['blockers'], ['original failure'])
+        self.assertEqual(json.loads((directory / 'manifest.json').read_text())['status'], 'prepared')
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -79,6 +163,7 @@ class NativeServingTests(unittest.TestCase):
             self.assertIn('freetoken', manifest['plans'])
             self.assertEqual(manifest['models']['freetoken']['profile']['model_id'], 'Qwen/Qwen3.6-35B-A3B')
             self.assertFalse(manifest['model_download_requested'])
+            self.assertIsNone(manifest['build_timeout_seconds'])
             self.assertIn(unittest.mock.call(self.root, 'rev-parse', ':sources/freetoken'), git.call_args_list)
             if engines == ['all']:
                 self.assertEqual(set(manifest['plans']), {'freetoken', 'sglang', 'vllm'})
@@ -194,9 +279,14 @@ class NativeServingTests(unittest.TestCase):
             self.assertEqual(plan['environment']['VLLM_USE_PRECOMPILED'], '0')
             self.assertEqual(plan['environment']['TORCH_CUDA_ARCH_LIST'], '12.1a')
             self.assertEqual(plan['environment']['CUDA_VISIBLE_DEVICES'], '0')
-            self.assertIn('--no-build-isolation', next(x['argv'] for x in plan['commands'] if x['label']=='framework-source-build'))
+            command = next(x['argv'] for x in plan['commands'] if x['label']=='framework-source-build')
+            self.assertNotIn('--no-build-isolation', command)
+            self.assertEqual(command[command.index('--no-build-isolation-package') + 1], engine)
             self.assertIn('cuda-import-probe', [x['label'] for x in plan['commands']])
         self.assertIn('torch==2.14.1', plans['sglang']['commands'][1]['argv'])
+        kernel = next(x for x in plans['sglang']['commands'] if x['label'] == 'kernel-source-build')
+        self.assertEqual(kernel['environment']['SKBUILD_CMAKE_DEFINE'], 'SGL_KERNEL_COMPILE_THREADS=1')
+        self.assertNotIn('SKBUILD_BUILD_DIR', plans['sglang']['environment'])
         self.assertTrue(any('python/sglang/kernels/aot' in arg for item in plans['sglang']['commands'] for arg in item['argv']))
         self.assertTrue(any('requirements/build/cuda.txt' in arg for item in plans['vllm']['commands'] for arg in item['argv']))
 
@@ -205,6 +295,24 @@ class NativeServingTests(unittest.TestCase):
         for item in plan['commands']:
             if item['label'] in ('venv', 'build-deps', 'framework-source-build'):
                 self.assertIn('--offline', item['argv'])
+
+    def test_parent_default_index_is_passed_to_every_upstream_clone_install(self):
+        mirror = 'https://mirror.example.invalid/simple'
+        (self.root / 'pyproject.toml').write_text(
+            f'[[tool.uv.index]]\nname="test-mirror"\nurl="{mirror}"\ndefault=true\n')
+        with patch.object(prep, '_git', side_effect=self.git), redirect_stdout(io.StringIO()):
+            directory, code = prepare.prepare(self.root, self.parser.parse_args(
+                ['--engines', 'sglang', 'vllm', '--dry-run', '--offline']))
+        manifest = json.loads((directory / 'manifest.json').read_text())
+        self.assertEqual(code, 0)
+        self.assertEqual(manifest['package_default_index'], mirror)
+        for engine, plan in manifest['plans'].items():
+            for command in plan['commands']:
+                argv = command['argv']
+                if argv[:3] == ['uv', 'pip', 'install']:
+                    self.assertEqual(argv[argv.index('--default-index') + 1], mirror)
+                    self.assertEqual(argv[argv.index('--torch-backend') + 1], 'cu130')
+                    self.assertIn('--offline', argv)
 
     def test_local_model_shards_and_frozen_identity_are_checked(self):
         record = model.inspect_model(self.directory, self.expected)
