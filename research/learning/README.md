@@ -41,7 +41,8 @@
 
 - [小模型动手课](../../experiments/tiny-inference/README.md)：本机真实生成与 LLDB 断点已验证；作为当前学习起点，第一节只观察输入与第一个新 token。
 - [第 1 课：一次请求如何变成模型输出](01-request-to-tokens.md)：导读与源码证据已准备；学习者理解情况等待练习反馈。
-- 后续课程尚未展开，不预先标记为已掌握。
+- [本次学习：从 token 编号到向量计算和 RMSNorm](02-token-embedding-rmsnorm.md)：记录词表与 Embedding、逐层计算、Q K V、KV cache，以及预先归一化的待验证想法；下一步逐行观察 `rmsnorm`。
+- 其他专题按问题逐步展开，未经过练习验收的内容不标记为已掌握。
 - [ds4 调研](../studies/ds4-inference/README.md)提供后续材料；第一课不要求先读完整份调研。
 - [R0 核查](../studies/ds4-inference/R0.md)是静态与运行验证材料，不能替代基础概念学习。
 
