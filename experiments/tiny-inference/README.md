@@ -27,16 +27,25 @@ uv run --offline python experiments/tiny-inference/lab.py run
 
 ## 在 VS Code 中按 F5 调试
 
-用 VS Code 打开整个 `ai-infra` 项目目录，使用 CodeLLDB 扩展（`vadimcn.vscode-lldb`，当前 Mac 已安装）。[launch.json](../../.vscode/launch.json) 提供两个入口：
+用 VS Code 打开整个 `ai-infra` 项目目录，使用 CodeLLDB 扩展（`vadimcn.vscode-lldb`，当前 Mac 已安装）。[launch.json](../../.vscode/launch.json) 提供三个入口：
 
 | 配置 | 停在哪里 | 适合做什么 |
 | --- | --- | --- |
+| `TinyStories：QKV 从哪里来` | `run.c:260`，`pos == 1 && l == 0` | 观察 `Once` 在第 0 层由同一输入算出 Q/K/V |
 | `TinyStories：第一个新 token` | `run.c:753`，最后一个输入 token 计算完毕 | 从第一节开始，观察输入与生成的分界 |
 | `TinyStories：从 main 开始` | `main` 函数入口 | 逐步看参数、模型加载和初始化 |
 
-在左侧“运行和调试”选择第一个配置，按 **F5**。启动前 [tasks.json](../../.vscode/tasks.json) 自动执行 `lab.py prepare`，校验固定源码和模型，重新编译带符号的调试版；模型已存在时无需再次下载。准备任务需要 `uv` 在 VS Code 的 PATH 中，新机器也需要先初始化 llama2.c 子模块。
+在左侧“运行和调试”选择所学小节对应的配置，按 **F5**。启动前 [tasks.json](../../.vscode/tasks.json) 自动执行 `lab.py prepare`，校验固定源码和模型，重新编译带符号的调试版；模型已存在时无需再次下载。准备任务需要 `uv` 在 VS Code 的 PATH 中，新机器也需要先初始化 llama2.c 子模块。
 
-停下后，在 Variables 中查看 `pos`、`token`、`num_prompt_tokens`，也可在 Watch 中添加 `transformer->config`。按 **F10** 两次执行完 `sample`，再添加 `next`、`logits[next]`、`tokenizer->vocab[next]`；不要在采样执行前读取尚未赋值的 `next`。**F11** 进入函数，**Shift+F11** 返回调用者，**F5** 继续。Mac 若把功能键用于系统控制，需要同时按 Fn。
+VS Code 的准备任务使用 `uv run --offline --no-sync`，复用已有 Python 环境执行标准库脚本，避免调试前触发主项目的包构建。当前 Mac 已有 `.venv`；新机器应先完成项目 Python 环境初始化。
+
+使用“第一个新 token”配置时，停下后在 Variables 中查看 `pos`、`token`、`num_prompt_tokens`，也可在 Watch 中添加 `transformer->config`。按 **F10** 两次执行完 `sample`，再添加 `next`、`logits[next]`、`tokenizer->vocab[next]`；不要在采样执行前读取尚未赋值的 `next`。**F11** 进入函数，**Shift+F11** 返回调用者，**F5** 继续。Mac 若把功能键用于系统控制，需要同时按 Fn。
+
+使用“QKV 从哪里来”配置时，先结束旧调试会话，再选择新配置启动；若旧的手动断点提前命中，继续到 `run.c:260`。此时 `token=9038`（Once）、`pos=1`、`l=0`、`dim=kv_dim=288`、`head_size=48`。`s->xb` 已经过 RMSNorm，是三次矩阵乘法共用的输入；`w->wq/wk/wv` 是三组训练好的权重。连续 F10 三次，到 265 行，才完成当前 Q/K/V 的计算。260 行的 `s->q` 可能残留前一 token 的计算，当前 K/V 位置也尚未写入，不能提前解释为当前结果。
+
+深入观察 Q 的计算时，在 260 行按 F11 进入 `matmul`，再 F10 到 225 行的 `val += w[i * n + j] * x[j]`。第一次到达这里时 `i=j=0`、`val=0`；内部 `x` 是外部的 `s->xb`，内部 `w` 是该层的 Q 权重数组。执行一次乘加，观察 `val` 改变。内层循环累加 288 项后，227 行才写入 `xout[0]`，即 `s->q[0]`；外层循环重复这一过程，得到全部 288 个 Q 分量。K/V 使用同样的输入，通过各自训练矩阵执行相同形式的计算。
+
+本节源码为 llama2.c `350e04fe35433e6d2941dce5a1f53308f87058eb`。Q 暂存于 `s->q`，K/V 通过 `s->k/s->v` 直接写到缓存中当前层、当前位置。265–279 行随后用 RoPE 变换 Q/K；比较 attention 分数时，应使用变换完成后的 Q 与缓存 K。下一段观察第 0 个头：当前 Q 与开始标记、Once 两个位置的 K 分别计算分数，softmax 后作为权重汇总两个 V。入口是 [固定源码](https://github.com/karpathy/llama2.c/blob/350e04fe35433e6d2941dce5a1f53308f87058eb/run.c#L260-L317)；更换 layer/pos 时需重新确认指针与循环变量的作用域。
 
 VS Code 直接调试 C 程序，输出在集成终端，不经过 `lab.py run` 的 30 秒限制，也不会自动保存它的运行记录。结束练习可按 **Shift+F5**；需要实验日志时仍使用上面的 `lab.py run`。配置中的断点对应固定源码版本，升级 llama2.c 时需要重新核对行号。配置字段依据 [CodeLLDB 官方说明](https://github.com/vadimcn/codelldb/blob/master/MANUAL.md#starting-a-new-debug-session)。
 

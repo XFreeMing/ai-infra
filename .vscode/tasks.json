@@ -6,7 +6,7 @@
       "type": "process",
       "command": "uv",
       "args": [
-        "run", "--offline", "python",
+        "run", "--offline", "--no-sync", "python",
         "experiments/tiny-inference/lab.py", "prepare"
       ],
       "options": {

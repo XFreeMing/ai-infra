@@ -2,6 +2,27 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "TinyStories：QKV 从哪里来",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/artifacts/tiny-inference/run-debug",
+      "args": [
+        "${workspaceFolder}/models/tiny-inference/stories15M.bin",
+        "-z", "${workspaceFolder}/sources/llama2.c/tokenizer.bin",
+        "-t", "0",
+        "-s", "1",
+        "-n", "8",
+        "-i", "Once upon a time"
+      ],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "tiny-inference: prepare",
+      "terminal": "integrated",
+      "stopOnEntry": false,
+      "preRunCommands": [
+        "breakpoint set --file run.c --line 260 --condition 'pos == 1 && l == 0'"
+      ]
+    },
+    {
       "name": "TinyStories：第一个新 token",
       "type": "lldb",
       "request": "launch",
