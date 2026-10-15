@@ -19,7 +19,7 @@
 
 本项目的 Python 包、CLI 与工具目录统一为 `lab_tools`，负责环境准备、实验记录和服务启动。命令按机器分为 `uv run 100|300|700 <命令>`：100 是 mini，300 是 AMD395 / ROCm，700 是 PGX GB10 / CUDA。原 `main.py` 和 `lab_tools` 入口保留，旧的不带编号的 `init/ds4/llama/sglang/vllm/freetoken` 仍按 700 CUDA 配方执行。
 
-uv 默认 PyPI index 已配置为清华 TUNA：`https://pypi.tuna.tsinghua.edu.cn/simple`，设置位于 [pyproject.toml](pyproject.toml)。`init` 在独立上游 clone 中执行的依赖安装也显式传入此默认源，启动计划和日志会显示 `--default-index`；需要换源时修改项目配置中的 default index。`uv run download` 的 ModelScope SDK 环境也读取此配置，300 生图/配音环境的构建子进程沿用相同源。独立下载脚本内也配置了 TUNA。300 生图/配音的 torch、torchaudio、triton-rocm 使用南京大学镜像的固定 ROCm wheel 直链，torch / torchaudio 携带官方 SHA256 校验，详见 [生图/配音说明](docs/media.md)。700 仍通过 `--torch-backend cu130` 选择官方 CUDA 源。此配置影响 Python 包安装，模型权重仍由下载命令单独处理。[TUNA 官方说明](https://mirrors.tuna.tsinghua.edu.cn/help/pypi/)、[uv 脚本 index 配置](https://docs.astral.sh/uv/guides/scripts/#using-alternative-package-indexes)
+uv 默认 PyPI index 已配置为阿里云：`https://mirrors.aliyun.com/pypi/simple`，设置位于 [pyproject.toml](pyproject.toml)。`init` 在独立上游 clone 中执行的依赖安装也显式传入此默认源，启动计划和日志会显示 `--default-index`；需要换源时修改项目配置中的 default index。`uv run download` 的 ModelScope SDK 环境也读取此配置，300 生图/配音环境的构建子进程沿用相同源。独立下载脚本内也配置了阿里云。300 生图/配音的 torch、torchaudio、triton-rocm 使用南京大学镜像的固定 ROCm wheel 直链，torch / torchaudio 携带官方 SHA256 校验，详见 [生图/配音说明](docs/media.md)。700 仍通过 `--torch-backend cu130` 选择官方 CUDA 源。此配置影响 Python 包安装，模型权重仍由下载命令单独处理。[uv 脚本 index 配置](https://docs.astral.sh/uv/guides/scripts/#using-alternative-package-indexes)
 
 ```sh
 git clone git@github.com:XFreeMing/ai-infra.git
@@ -81,13 +81,15 @@ uv run 300 init Indextts2
 # 模型由用户自行执行下载；300 默认 /home/ops396/models
 uv run download Ideogram4
 uv run download Indextts2
+uv run 300 hello Ideogram4  # 生成并校验 256×256 测试图
+uv run 300 hello Indextts2  # 生成并校验一句短中文配音
 uv run 300 Ideogram4   # 本地 WebUI 7861
 uv run 300 Indextts2   # 本地 WebUI 7860
 # 700 下载默认 /data/models；本轮只新增 300 的运行配方
 uv run download Ideogram4 --machine 700
 ```
 
-这两个 init 不下载或加载模型权重；download 使用固定 ModelScope 版本和必要辅助文件，展示进度并校验 SHA256；启动只读取本地模型。命令大小写不敏感。模型生成尚未执行，不把 HIP/工具检查当作生图或配音验证。
+这两个 init 不下载或加载模型权重；download 使用固定 ModelScope 版本和必要辅助文件，展示进度并校验 SHA256；启动只读取本地模型。命令大小写不敏感。`hello` 使用小样本实际生成并校验输出，验证记录保存在 `artifacts/hello/300/`；详细结果见 [生图/配音说明](docs/media.md#验证状态)。
 
 ## 当前研究
 
@@ -113,7 +115,9 @@ uv run 700 init
 
 所有 `init` 入口默认显示每步用途、完整命令、工作目录、超时设置和日志路径。Linux/macOS 上的 uv 下载与安装使用 PTY 保留原生进度，可看到各包的已下载/总字节、准备包数和安装包数；Git 显示接收对象进度。明确的源码安装步骤展开 build backend 输出，CMake 显示编译命令，Ninja 显示完成任务数/总数、百分比与耗时。Python 子进程无缓冲输出，大文件 SHA256 校验也显示字节百分比与速度。下载/安装保持 uv 普通模式，源码构建使用 verbose；子进程移除会屏蔽 uv 进度的继承 `RUST_LOG`，有效配置记录到 manifest。
 
-步骤运行期间每 5 秒显示耗时、距最近输出的时间、最近一条输出及剩余预算；无可靠总量的步骤显示实际活动与耗时，不估算完成百分比。阶段开始/结束与定期摘要写入准备目录的 `progress.log`，可以另开终端执行 `tail -f <准备目录>/progress.log`。每步 stdout/stderr 的完整原始字节仍写入各自 `.log`（uv 终端日志含控制序列）；结束时显示状态、耗时和退出码。非终端控制台去除终端控制序列，Windows 或 PTY 不可用时回退到实时文本和阶段摘要。修改只影响新启动的 init 进程。
+下载进度条或编译日志持续更新时，控制台只显示工具自身的输出；连续至少 5 秒没有新增输出才补充耗时、最近一条输出及剩余预算，不叠加重复的「进行中」。无可靠总量的步骤显示实际活动与耗时，不估算完成百分比。阶段开始/结束与每 5 秒的后台摘要写入准备目录的 `progress.log`，可以另开终端执行 `tail -f <准备目录>/progress.log`。每步 stdout/stderr 的完整原始字节仍写入各自 `.log`（uv 终端日志含控制序列）；结束时显示状态、耗时和退出码。非终端控制台去除终端控制序列，Windows 或 PTY 不可用时回退到实时文本和阶段摘要。修改只影响新启动的 init 进程。
+
+`interrupted / 130` 且 `interruption_reason=keyboard_interrupt` 表示 init 控制进程收到中断异常，通常来自 Ctrl+C、终端停止或外部 SIGINT；不会忽略中断继续下载。预算超时记为 `timed_out / 124`。清单记录控制进程/子进程 PID、中断原因和清理前后的子进程返回码，无法据此确定信号发送者。
 
 ```sh
 uv run 700 init --update-sources              # 同步所有 main/master，再构建当前 ds4/llama

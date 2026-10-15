@@ -2,8 +2,8 @@
 # requires-python = ">=3.12"
 # dependencies = ["modelscope==1.40.2"]
 # [[tool.uv.index]]
-# name = "tuna"
-# url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+# name = "aliyun"
+# url = "https://mirrors.aliyun.com/pypi/simple"
 # default = true
 # ///
 """ModelScope SDK worker, invoked only by `uv run download`, never by init/launch."""

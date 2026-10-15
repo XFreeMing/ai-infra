@@ -111,6 +111,24 @@ def import_app(source: Path, app: str):
     return module
 
 
+def language_probe() -> dict:
+    """Exercise delayed dictionary reads with downloads already disabled."""
+    import nltk
+    # Do not allow a user's global data directory to hide a missing init asset.
+    nltk.data.path[:] = [os.environ['NLTK_DATA']]
+    for resource in ('corpora/cmudict.zip', 'taggers/averaged_perceptron_tagger.zip'):
+        nltk.data.find(resource)
+    from indextts.utils.text_utils import get_text_syllable_num
+    english = get_text_syllable_num('Hello world')
+    mixed = get_text_syllable_num('你好 world')
+    tags = nltk.pos_tag(['Hello', 'world'])
+    sentences = nltk.sent_tokenize('Hello world. This is a test.')
+    if english != 3 or mixed != 3 or len(tags) != 2 or len(sentences) != 2:
+        raise RuntimeError('NLTK 语言运行资源检查失败。')
+    return {'nltk': nltk.__version__, 'english_syllables': english,
+            'mixed_syllables': mixed, 'pos_tag_count': len(tags), 'sentence_count': len(sentences)}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument('phase', choices=('probe', 'run'))
@@ -138,6 +156,8 @@ def main(argv: list[str] | None = None) -> int:
         if any(provenance[key] != expected[key] for key in ('torch_path', 'torch', 'module_path', 'torch_hip')):
             raise RuntimeError('运行时实际 import 路径或后端版本与准备证据不同。')
     if args.phase == 'probe':
+        if args.app == 'indextts2':
+            provenance['language_runtime'] = language_probe()
         args.output.write_text(json.dumps(provenance, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
         print(json.dumps(provenance, ensure_ascii=False, indent=2))
         return 0

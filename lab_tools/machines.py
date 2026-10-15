@@ -128,6 +128,7 @@ def main(machine: str, argv: list[str] | None = None, *, root: Path | None = Non
     sub.add_parser('run', help='记录干净快照中的实验（Linux/macOS）。').add_argument('arguments', nargs=argparse.REMAINDER)
     sub.add_parser('new', help='创建研究/实验模板。').add_argument('arguments', nargs=argparse.REMAINDER)
     sub.add_parser('download', add_help=False, help='独立下载模型；init 不调用。').add_argument('arguments', nargs=argparse.REMAINDER)
+    sub.add_parser('hello', add_help=False, help='AI 300 生图/配音快速生成验证。').add_argument('arguments', nargs=argparse.REMAINDER)
     for engine in ALL_ENGINES:
         # Preserve the upstream launcher's own flags and -- separator.
         supported = engine in PROFILES[machine]['engines']
@@ -136,7 +137,7 @@ def main(machine: str, argv: list[str] | None = None, *, root: Path | None = Non
     if raw:
         raw[0] = raw[0].casefold()
     # argparse REMAINDER alone rejects leading --dry-run / --help.
-    if raw and raw[0] in (*ALL_ENGINES, 'download'):
+    if raw and raw[0] in (*ALL_ENGINES, 'download', 'hello'):
         args = argparse.Namespace(action=raw[0], arguments=raw[1:])
     else:
         args = parser.parse_args(raw)
@@ -187,6 +188,11 @@ def main(machine: str, argv: list[str] | None = None, *, root: Path | None = Non
         if args.action == 'download':
             from lab_tools.media_download import main as download
             return download([*args.arguments, '--machine', machine], root=root)
+        if args.action == 'hello':
+            if machine != '300':
+                raise WorkflowError('生图/配音 hello 当前仅支持 AI 300。')
+            from lab_tools.media_hello import main as hello
+            return hello(args.arguments, root=root)
         if args.action in ('run', 'new'):
             if args.action == 'new':
                 return cli.main(['new', *args.arguments], root=root)

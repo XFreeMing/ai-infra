@@ -76,7 +76,7 @@ class MediaTests(unittest.TestCase):
     def test_runtime_uses_domestic_index_and_keeps_rocm_wheels(self):
         for app in models.APPS:
             plan = prepare.plan_media(self.root, app, self.root / app, self.args)
-            mirror = 'https://pypi.tuna.tsinghua.edu.cn/simple'
+            mirror = 'https://mirrors.aliyun.com/pypi/simple'
             self.assertEqual(plan['package_default_index'], mirror)
             self.assertEqual(plan['environment']['UV_DEFAULT_INDEX'], mirror)
             self.assertEqual(plan['environment']['PIP_INDEX_URL'], mirror)
@@ -96,7 +96,7 @@ class MediaTests(unittest.TestCase):
             self.assertTrue(all(abi + '-' + abi in arg for arg in wheel_args))
 
     def test_project_mirror_change_reaches_runtime_and_download_sdk(self):
-        mirror = 'https://mirrors.aliyun.com/pypi/simple'
+        mirror = 'https://packages.example.invalid/simple'
         with (self.root / 'pyproject.toml').open('a') as config:
             config.write('\n[[tool.uv.index]]\nname="mirror"\nurl="' + mirror + '"\ndefault=true\n')
         plan = prepare.plan_media(self.root, 'indextts2', self.root / 'runtime', self.args)
@@ -234,15 +234,20 @@ class MediaTests(unittest.TestCase):
         constructor = unittest.mock.Mock()
         module = SimpleNamespace(__file__=str(self.root / 'module.py'), IndexTTS2=constructor)
         with patch.object(worker, 'torch_probe', return_value={'torch': models.TORCH_VERSION}), \
-             patch.object(worker, 'import_app', return_value=module), redirect_stdout(io.StringIO()):
+             patch.object(worker, 'import_app', return_value=module), \
+             patch.object(worker, 'language_probe', return_value={'english_syllables': 3}) as language, \
+             redirect_stdout(io.StringIO()):
             self.assertEqual(worker.main(['probe', '--app', 'indextts2', '--source', str(self.root),
                                           '--output', str(self.root / 'provenance.json')]), 0)
         constructor.assert_not_called()
+        language.assert_called_once_with()
 
     def test_index_adapters_change_model_io_and_align_dependency_metadata(self):
         source = self.root / 'source'
         (source / 'indextts/utils').mkdir(parents=True)
-        (source / 'pyproject.toml').write_text('[project]\ndependencies=["torch==2.8.*","torchaudio==2.8.*","transformers==4.52.1"]\n')
+        (source / 'pyproject.toml').write_text('[project]\ndependencies=["torch==2.8.*","torchaudio==2.8.*",'
+            '"transformers==4.52.1","tokenizers==0.21.0"]\n'
+            '[project.optional-dependencies]\nwebui=["gradio==5.45.0"]\n')
         (source / 'indextts/infer_v2.py').write_text('from huggingface_hub import hf_hub_download\n'
              'extract = SeamlessM4TFeatureExtractor.from_pretrained("facebook/w2v-bert-2.0")\n'
              'vocoder = bigvgan.BigVGAN.from_pretrained(bigvgan_name, use_cuda_kernel=False)\n')
@@ -252,7 +257,39 @@ class MediaTests(unittest.TestCase):
         self.assertIn(models.TORCH_VERSION, (source / 'pyproject.toml').read_text())
         self.assertIn('local_model(bigvgan_name)', (source / 'indextts/infer_v2.py').read_text())
         self.assertEqual(record['sha256'], sha256(Path(record['path'])))
-        self.assertNotIn('deepspeed', Path(record['requirements']).read_text())
+        requirements = Path(record['requirements']).read_text().splitlines()
+        self.assertFalse(any('deepspeed' in line for line in requirements))
+        self.assertEqual([line for line in requirements if line.startswith('transformers')], ['transformers==4.52.1'])
+        self.assertEqual([line for line in requirements if line.startswith('gradio')], ['gradio==5.45.0'])
+        self.assertIn('tokenizers==0.21.0', requirements)
+        self.assertNotIn('transformers==5.8.0', requirements)
+        self.assertNotIn('transformers==4.57.6', requirements)
+
+    def test_ideogram_adapter_uses_checkpoint_transformers_and_compatible_gradio_only(self):
+        # Exercise both the pinned upstream range and the obsolete local 4.x
+        # pin: neither may remain alongside the checkpoint-compatible version.
+        for index, upstream in enumerate(('transformers>=4.49.0', 'transformers==4.57.6')):
+            with self.subTest(upstream=upstream):
+                source = self.root / f'ideogram-{index}' / 'source'
+                (source / 'src/ideogram4').mkdir(parents=True)
+                (source / 'pyproject.toml').write_text('[project]\ndependencies=["torch>=2.11",'
+                    f'"{upstream}","safetensors>=0.4.5","huggingface_hub>=0.26.0"]\n')
+                pipeline = source / 'src/ideogram4/pipeline_ideogram4.py'
+                pipeline.write_text('from huggingface_hub import hf_hub_download\n')
+                record = prepare.patch_source(source, 'ideogram4')
+                requirements = Path(record['requirements']).read_text().splitlines()
+                self.assertEqual([line for line in requirements if line.startswith('transformers')],
+                                 ['transformers==5.8.0'])
+                self.assertEqual([line for line in requirements if line.startswith('gradio')], ['gradio==5.49.1'])
+                self.assertEqual([line for line in requirements if line.startswith('torch')],
+                                 ['torch==' + models.TORCH_VERSION])
+                self.assertNotIn('transformers==4.57.6', requirements)
+                self.assertNotIn('transformers==4.52.1', requirements)
+                self.assertNotIn('gradio==5.45.0', requirements)
+                self.assertIn('safetensors>=0.4.5', requirements)
+                self.assertIn('huggingface_hub>=0.26.0', requirements)
+                self.assertIn('from lab_tools.media_worker import local_file as hf_hub_download', pipeline.read_text())
+                self.assertEqual(record['requirements_sha256'], sha256(Path(record['requirements'])))
 
     def test_download_sdk_receipt_requires_hashes_and_handles_only_selected_files(self):
         script = Path(__file__).resolve().parents[1] / 'scripts/download_media.py'

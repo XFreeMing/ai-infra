@@ -41,6 +41,8 @@ uv run 300 llama --help
 uv run 300 llama 2222 --model /data/models/model.gguf --context 4096
 uv run 300 ds4 --model /data/models/model.gguf --devices 0
 uv run 300 llama --model /data/models/model.gguf -- --reasoning off
+uv run 300 hello Ideogram4  # 本地生图模型快速生成验证
+uv run 300 hello Indextts2  # 本地配音模型快速生成验证
 uv run 300 new study rocm-first-smoke
 uv run 300 run smoke
 ```
@@ -96,7 +98,7 @@ uv run 700 vllm 5555
 
 ## 来源与证据
 
-三个编号及旧别名的 init 共用实时记录器：Git 强制显示传输进度，CMake 展开编译命令，Ninja 显示完成数/总数与耗时。Linux 上 uv 保留下载字节和安装包数进度；每 5 秒补充当前步骤、耗时与最近输出。准备目录 `progress.log` 可用 `tail -f` 读取；逐步 `.log` 保留完整 stdout/stderr。工具没有提供总量时显示实际活动，不生成虚假的全流程百分比。Windows 使用实时文本和原生构建进度。
+三个编号及旧别名的 init 共用实时记录器：Git 强制显示传输进度，CMake 展开编译命令，Ninja 显示完成数/总数与耗时。Linux 上 uv 保留下载字节和安装包数进度；连续至少 5 秒没有新增输出才向控制台补充当前步骤、耗时与最近输出。准备目录 `progress.log` 每 5 秒记录后台摘要，可用 `tail -f` 读取；逐步 `.log` 保留完整 stdout/stderr。工具没有提供总量时显示实际活动，不生成虚假的全流程百分比。Windows 使用实时文本和原生构建进度。
 
 构建源码优先读取干净子模块的实际 HEAD，未初始化时读取 parent index gitlink；不会自动追 main。`--update-sources` 是显式更新选项，会按原有流程更新所有干净子模块，随后冻结实际 commits；不能和 dry-run/check-only/offline/resume 混用。
 

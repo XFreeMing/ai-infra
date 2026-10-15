@@ -4,6 +4,7 @@ from __future__ import annotations
 import errno
 import os
 from pathlib import Path
+import re
 import shutil
 
 
@@ -22,6 +23,12 @@ class TerminalText:
                 self.state = 'csi' if char == '[' else 'osc' if char == ']' else 'text'
             elif self.state == 'csi':
                 if '@' <= char <= '~':
+                    if char in 'ABEFHfJK':
+                        # Cursor motion/erasure separates redraws even without LF.
+                        if self.line.strip():
+                            self.last_line = self.line.strip()[-500:]
+                            result.append('\n')
+                        self.line = ''
                     self.state = 'text'
             elif self.state == 'osc':
                 if char == '\x07':
@@ -46,7 +53,10 @@ class TerminalText:
 
     @property
     def latest(self) -> str:
-        return self.line.strip()[-500:] or self.last_line
+        value = self.line.strip()[-500:] or self.last_line
+        # uv pads rows to the terminal width instead of emitting a newline.
+        # Keep the final visible row and collapse padding in the summary only.
+        return ' '.join(re.split(r' {32,}', value.strip())[-1].split())
 
 
 class CommandOutput:

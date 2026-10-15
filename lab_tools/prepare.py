@@ -181,7 +181,8 @@ class Recorder:
                      'NINJA_STATUS': '[%f/%t %p | %e s] ', **(env or {})}
         record = {'label': label, 'argv': argv, 'cwd': str(cwd), 'timeout_seconds': timeout,
                   'environment_overrides': overrides, 'log': f'{index:02d}-{label}.log',
-                  'status': 'running', 'started_at': datetime.now(timezone.utc).isoformat()}
+                  'status': 'running', 'started_at': datetime.now(timezone.utc).isoformat(),
+                  'runner_pid': os.getpid()}
         self.manifest['commands'].append(record)
         self.save()
         started = time.monotonic()
@@ -241,6 +242,8 @@ class Recorder:
                 process = subprocess.Popen(argv, cwd=cwd, stdout=output.stdout, stderr=subprocess.STDOUT,
                                            start_new_session=True, env=child_env)
                 output.spawned()
+                record['child_pid'] = process.pid
+                self.save()
                 try:
                     deadline = started + max(0.01, timeout) if timeout is not None else None
                     next_progress = started + PROGRESS_INTERVAL_SECONDS
@@ -264,7 +267,10 @@ class Recorder:
                                        f'{now - last_output:.1f} 秒无新增输出｜{budget}')
                             if terminal.latest:
                                 message += '\n最近输出：' + terminal.latest
-                            print('\n' + message, flush=True)
+                            # Native bars/logs already show activity. Only add a console
+                            # heartbeat after a full interval with no child output.
+                            if now - last_output >= PROGRESS_INTERVAL_SECONDS:
+                                print('\n' + message, flush=True)
                             self.progress(message)
                             record.update(last_output=terminal.latest, output_bytes=reader.tell(),
                                           elapsed_seconds=round(now - started, 1))
@@ -276,10 +282,14 @@ class Recorder:
                         except subprocess.TimeoutExpired:
                             pass
                 except KeyboardInterrupt:
-                    record.update(exit_code=130, status='interrupted')
+                    record.update(exit_code=130, status='interrupted',
+                                  interruption_reason='keyboard_interrupt',
+                                  interruption_receiver='init_runner',
+                                  child_returncode_before_cleanup=process.poll())
                     raise
                 finally:
                     _stop_process_group(process)
+                    record['child_returncode'] = process.returncode
                     output.drain()
                     forward_output(reader)
                     tail = decoder.decode(b'', final=True)
@@ -299,6 +309,10 @@ class Recorder:
                   f'退出码 {record.get("exit_code", "未知")}\n日志：{log_path.resolve()}', flush=True)
             self.progress(f'步骤{status} [{index + 1}] {label}｜耗时 {record["duration_seconds"]:.1f} 秒｜'
                           f'退出码 {record.get("exit_code", "未知")}')
+            if record.get('interruption_reason') == 'keyboard_interrupt':
+                reason = '中断原因：init 收到 KeyboardInterrupt（通常由 Ctrl+C、终端停止或外部 SIGINT 触发）；未记录发送者。'
+                print(reason, flush=True)
+                self.progress(reason)
             if record.get('error'):
                 print(f'详情：{record["error"]}', flush=True)
         return record
@@ -416,7 +430,7 @@ def prepare_support(root: Path, models: Path, reference: dict, recorder: Recorde
                     started = progress_at = time.monotonic()
                     print(f'DSpark support：{total / max(identity["size_bytes"], 1):.1%}｜'
                           f'{total / 1024**2:.1f}/{identity["size_bytes"] / 1024**2:.1f} MiB', flush=True)
-                    while chunk := response.read(8 * 1024 * 1024):
+                    while chunk := response.read(64 * 1024):
                         total += len(chunk)
                         if total > identity['size_bytes']:
                             raise WorkflowError('DSpark support 下载超出冻结大小；保留 incomplete。')

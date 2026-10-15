@@ -31,7 +31,7 @@ SOURCES = {
 PYTHON_VERSION = '3.12'
 TORCH_BACKEND = 'cu130'
 CUDA_ARCH = '12.1a'
-DEFAULT_PYPI_INDEX = 'https://pypi.tuna.tsinghua.edu.cn/simple'
+DEFAULT_PYPI_INDEX = 'https://mirrors.aliyun.com/pypi/simple'
 
 
 @contextmanager

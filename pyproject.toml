@@ -27,9 +27,9 @@ build-backend = "setuptools.build_meta"
 packages = ["lab_tools"]
 
 [tool.setuptools.package-data]
-lab_tools = ["media_models.json"]
+lab_tools = ["media_models.json", "nltk_resources.json", "fixtures/*"]
 
 [[tool.uv.index]]
-name = "tuna"
-url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+name = "aliyun"
+url = "https://mirrors.aliyun.com/pypi/simple"
 default = true

@@ -1,0 +1,69 @@
+{
+  "repository": "https://github.com/nltk/nltk_data",
+  "commit": "550b6625bcef1f2abff2ff770a5a0d272c9c6b2a",
+  "index_url": "https://raw.githubusercontent.com/nltk/nltk_data/550b6625bcef1f2abff2ff770a5a0d272c9c6b2a/index.xml",
+  "packages": [
+    {
+      "id": "cmudict",
+      "subdir": "corpora",
+      "url": "https://raw.githubusercontent.com/nltk/nltk_data/550b6625bcef1f2abff2ff770a5a0d272c9c6b2a/packages/corpora/cmudict.zip",
+      "size": 896069,
+      "unzipped_size": 3824638,
+      "sha256_checksum": "d07cca47fd72ad32ea9d8ad1219f85301eeaf4568f8b6b73747506a71fb5afd6",
+      "expected_files": [
+        "corpora/cmudict/cmudict",
+        "corpora/cmudict/README"
+      ]
+    },
+    {
+      "id": "averaged_perceptron_tagger",
+      "subdir": "taggers",
+      "url": "https://raw.githubusercontent.com/nltk/nltk_data/550b6625bcef1f2abff2ff770a5a0d272c9c6b2a/packages/taggers/averaged_perceptron_tagger.zip",
+      "size": 2526731,
+      "unzipped_size": 6138625,
+      "sha256_checksum": "e1f13cf2532daadfd6f3bc481a49859f0b8ea6432ccdcd83e6a49a5f19008de9",
+      "expected_files": [
+        "taggers/averaged_perceptron_tagger/averaged_perceptron_tagger.pickle"
+      ]
+    },
+    {
+      "id": "averaged_perceptron_tagger_eng",
+      "subdir": "taggers",
+      "url": "https://raw.githubusercontent.com/nltk/nltk_data/550b6625bcef1f2abff2ff770a5a0d272c9c6b2a/packages/taggers/averaged_perceptron_tagger_eng.zip",
+      "size": 1539115,
+      "unzipped_size": 5703817,
+      "sha256_checksum": "6025f530624335c67d6547d44757b357b4e79bae030a0383e9887a92c1718f0b",
+      "expected_files": [
+        "taggers/averaged_perceptron_tagger_eng/averaged_perceptron_tagger_eng.weights.json",
+        "taggers/averaged_perceptron_tagger_eng/averaged_perceptron_tagger_eng.classes.json",
+        "taggers/averaged_perceptron_tagger_eng/averaged_perceptron_tagger_eng.tagdict.json"
+      ]
+    },
+    {
+      "id": "punkt",
+      "subdir": "tokenizers",
+      "url": "https://raw.githubusercontent.com/nltk/nltk_data/550b6625bcef1f2abff2ff770a5a0d272c9c6b2a/packages/tokenizers/punkt.zip",
+      "size": 13905355,
+      "unzipped_size": 37245719,
+      "sha256_checksum": "51c3078994aeaf650bfc8e028be4fb42b4a0d177d41c012b6a983979653660ec",
+      "expected_files": [
+        "tokenizers/punkt/english.pickle",
+        "tokenizers/punkt/PY3/english.pickle"
+      ]
+    },
+    {
+      "id": "punkt_tab",
+      "subdir": "tokenizers",
+      "url": "https://raw.githubusercontent.com/nltk/nltk_data/550b6625bcef1f2abff2ff770a5a0d272c9c6b2a/packages/tokenizers/punkt_tab.zip",
+      "size": 4319076,
+      "unzipped_size": 10885330,
+      "sha256_checksum": "e57f64187974277726a3417ca6f181ec5403676c717672eef6a748a7b20e0106",
+      "expected_files": [
+        "tokenizers/punkt_tab/english/abbrev_types.txt",
+        "tokenizers/punkt_tab/english/collocations.tab",
+        "tokenizers/punkt_tab/english/ortho_context.tab",
+        "tokenizers/punkt_tab/english/sent_starters.txt"
+      ]
+    }
+  ]
+}

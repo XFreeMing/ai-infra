@@ -21,6 +21,28 @@ class InitProgressTests(unittest.TestCase):
         self.assertEqual(text, 'torch 25%\ntorch 50%\n')
         self.assertEqual(display.latest, 'torch 50%')
 
+    def test_redrawn_uv_rows_do_not_accumulate_in_latest_output(self):
+        display = TerminalText()
+        for value in (10, 20, 30):
+            display.feed('\x1b[1A\r\x1b[2K\x1b[1B\r\x1b[2K\x1b[1A')
+            display.feed('Preparing packages... (0/1)' + ' ' * 80 +
+                         'torch' + ' ' * 16 + f'--- {value} MiB/5.79 GiB' + ' ' * 40)
+        self.assertEqual(display.latest, 'torch --- 30 MiB/5.79 GiB')
+
+    def test_active_output_does_not_get_duplicate_console_heartbeats(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            code = 'import time\nfor i in range(40):\n print(f"download {i}/40",flush=True)\n time.sleep(.01)\n'
+            recorder = prepare.Recorder(root, root, {'commands': []})
+            with patch.object(prepare, 'OUTPUT_POLL_SECONDS', .005), \
+                 patch.object(prepare, 'PROGRESS_INTERVAL_SECONDS', .1), redirect_stdout(io.StringIO()) as terminal:
+                result = recorder.command('download', [sys.executable, '-c', code], root, 5)
+            self.assertEqual(result['exit_code'], 0)
+            self.assertIn('download 39/40', terminal.getvalue())
+            self.assertNotIn('\n进行中：', terminal.getvalue())
+            self.assertNotIn('最近输出：', terminal.getvalue())
+            self.assertIn('进行中：', (root / 'progress.log').read_text())
+
     @unittest.skipUnless(os.name == 'posix', 'POSIX PTY')
     def test_terminal_progress_is_visible_before_completion_and_raw_log_is_preserved(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -88,6 +110,39 @@ class InitProgressTests(unittest.TestCase):
             self.assertEqual(result['output_mode'], 'file')
             self.assertIn('fallback output', terminal.getvalue())
             self.assertIn('PTY 不可用', terminal.getvalue())
+
+    @unittest.skipUnless(os.name == 'posix', 'POSIX PTY')
+    def test_pty_interrupt_keeps_output_and_saves_interrupted_status(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            executable = root / 'uv'
+            executable.write_text('#!' + sys.executable + '\n'
+                                  'import time\nprint("interrupt marker",flush=True)\ntime.sleep(10)\n')
+            executable.chmod(0o755)
+
+            class InterruptOutput(io.StringIO):
+                interrupted = False
+                def write(self, text):
+                    result = super().write(text)
+                    if text == 'interrupt marker\n' and not self.interrupted:
+                        self.interrupted = True
+                        raise KeyboardInterrupt
+                    return result
+
+            recorder = prepare.Recorder(root, root, {'commands': []})
+            with redirect_stdout(InterruptOutput()), self.assertRaises(KeyboardInterrupt):
+                recorder.command('runtime', [str(executable), 'pip', 'install', 'fixture'], root, 5)
+            result = json.loads((root / 'manifest.json').read_text())['commands'][0]
+            self.assertEqual((result['exit_code'], result['status']), (130, 'interrupted'))
+            self.assertEqual(result['interruption_reason'], 'keyboard_interrupt')
+            self.assertEqual(result['interruption_receiver'], 'init_runner')
+            self.assertEqual(result['runner_pid'], os.getpid())
+            self.assertIsInstance(result['child_pid'], int)
+            self.assertIn('child_returncode_before_cleanup', result)
+            self.assertIn('child_returncode', result)
+            self.assertIn('KeyboardInterrupt', (root / 'progress.log').read_text())
+            self.assertEqual((root / result['log']).read_bytes(), b'interrupt marker\n')
+            self.assertLess(result['duration_seconds'], 5)
 
     def test_slow_hash_reports_real_bytes_without_changing_digest(self):
         import hashlib

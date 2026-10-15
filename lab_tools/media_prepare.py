@@ -17,7 +17,16 @@ from lab_tools.media_models import APPS, TORCH_VERSION
 from lab_tools.media_wheels import MIRROR, wheel_requirements, wheel_sources
 from lab_tools.machines import require_host, require_rocm, rocm_home, rocm_report
 from lab_tools.native_prepare import default_package_index, initialization_lock
+from lab_tools.nltk_prepare import catalog as language_catalog
 from lab_tools.prepare import Recorder, sha256
+
+
+def download_environment() -> dict[str, str]:
+    # Limit connection pressure while retaining uv's native progress and cache.
+    # HTTP limits apply to individual reads/connections, not the whole init.
+    defaults = {'UV_CONCURRENT_DOWNLOADS': '4', 'UV_HTTP_TIMEOUT': '30',
+                'UV_HTTP_CONNECT_TIMEOUT': '10', 'UV_HTTP_RETRIES': '2'}
+    return {key: os.environ.get(key, value) for key, value in defaults.items()}
 
 
 def patch_source(source: Path, app: str) -> dict:
@@ -52,8 +61,11 @@ def patch_source(source: Path, app: str) -> dict:
     metadata = tomllib.loads((source / 'pyproject.toml').read_text(encoding='utf-8'))
     requirements = [value for value in metadata['project']['dependencies']
                     if not value.split('=', 1)[0].split('>', 1)[0].strip() in ('torch', 'torchaudio', 'transformers')]
-    requirements += ['torch==' + TORCH_VERSION, 'transformers==4.57.6' if app == 'ideogram4' else 'transformers==4.52.1',
-                     'gradio==5.45.0', 'soundfile==0.13.1']
+    # The pinned Ideogram FP8 checkpoint was saved by Transformers 5.8.0:
+    # its tokenizer list and Qwen3-VL rope_parameters are incompatible with 4.x.
+    # Gradio 5.49.1 permits the huggingface-hub 1.x required by Transformers 5.
+    requirements += ['torch==' + TORCH_VERSION, 'transformers==5.8.0' if app == 'ideogram4' else 'transformers==4.52.1',
+                     'gradio==5.49.1' if app == 'ideogram4' else 'gradio==5.45.0', 'soundfile==0.13.1']
     if app == 'indextts2':
         requirements += ['torchaudio==' + TORCH_VERSION]
     # Installing the upstream package without dependencies avoids its cu128 uv source mapping.
@@ -82,7 +94,7 @@ def plan_media(root: Path, app: str, directory: Path, args) -> dict:
     package_index = default_package_index(root)
     wheels = wheel_sources(app)
     # --torch-backend overrides package indexes with official overseas URLs.
-    # Direct wheel requirements select only the GPU packages; PyPI stays on TUNA.
+    # Direct wheel requirements select only the GPU packages; PyPI uses the project index.
     # uv verbose hides download bars; reserve it for the editable source build.
     uv = ['uv', 'pip', 'install', '--python', str(python), '--default-index', package_index]
     if args.offline:
@@ -101,7 +113,12 @@ def plan_media(root: Path, app: str, directory: Path, args) -> dict:
             'python': str(python), 'source': str(source), 'worker': str(worker), 'model_download_requested': False,
             'model_loading_requested': False, 'commands': command, 'package_default_index': package_index,
             'torch_wheel_mirror': MIRROR, 'rocm_wheel_sources': wheels,
-            'environment': {'HIP_VISIBLE_DEVICES': '0', 'ROCM_PATH': str(home), 'HIP_PATH': str(home),
+            'language_runtime_resources': language_catalog() if app == 'indextts2' else None,
+            'language_runtime_command': ([str(python), '-I', str(runtime / 'lab_tools/nltk_prepare.py'),
+                '--directory', str(directory / 'nltk_data'), '--cache-dir', str(root / '.cache/nltk'),
+                *(['--offline'] if args.offline else [])] if app == 'indextts2' else None),
+            'environment': {**download_environment(),
+                            'HIP_VISIBLE_DEVICES': '0', 'ROCM_PATH': str(home), 'HIP_PATH': str(home),
                             'UV_DEFAULT_INDEX': package_index, 'PIP_INDEX_URL': package_index,
                             'NINJA_STATUS': '[%f/%t %p | %e s] ',
                             'HF_HUB_OFFLINE': '1', 'TRANSFORMERS_OFFLINE': '1', 'PYTHONNOUSERSITE': '1',
@@ -124,6 +141,9 @@ def prepare_media(root: Path, app: str, args) -> tuple[Path, int]:
     recorder.save()
     print(f'{APPS[app]["name"]} 运行环境准备：{directory}；不下载或加载模型。', flush=True)
     print(f'普通 Python 包源：{plan["package_default_index"]}\nROCm wheel 源：{plan["torch_wheel_mirror"]}', flush=True)
+    print(f'下载并发：{plan["environment"]["UV_CONCURRENT_DOWNLOADS"]}；'
+          f'HTTP 读取超时：{plan["environment"]["UV_HTTP_TIMEOUT"]} 秒；'
+          f'请求重试：{plan["environment"]["UV_HTTP_RETRIES"]} 次。', flush=True)
     for wheel in plan['rocm_wheel_sources']:
         print(f'{wheel["package"]}：{wheel["url"]}', flush=True)
     if args.dry_run:
@@ -170,9 +190,7 @@ def prepare_media(root: Path, app: str, args) -> tuple[Path, int]:
                 step(name, command)
             # g2p-en's small lexicon/POS resources are runtime language data, not TTS checkpoints.
             if app == 'indextts2':
-                if not args.offline:
-                    step('language-runtime-data', [plan['python'], '-I', '-c',
-                         "import nltk,os; [nltk.download(n,download_dir=os.environ['NLTK_DATA'],raise_on_error=True) for n in ('cmudict','averaged_perceptron_tagger','averaged_perceptron_tagger_eng','punkt','punkt_tab')]"])
+                step('language-runtime-data', plan['language_runtime_command'])
                 manifest['language_data_files'] = {str(p): sha256(p) for p in (directory / 'nltk_data').rglob('*') if p.is_file()}
             step('rocm-runtime-import-probe', plan['commands'][7], limit=60)
             manifest['provenance'] = json.loads((directory / 'provenance.json').read_text(encoding='utf-8'))
