@@ -30,7 +30,9 @@ uv run 300 init Ideogram4 --build-timeout 1800
 uv run 300 init Indextts2 --build-timeout 0  # 明确允许不限总时间
 ```
 
-默认总预算为 900 秒；安装 ROCm wheel 较慢时可提高。每步显示完整命令、实时安装输出、日志和耗时；静默时每 20 秒报告等待时间。环境检查失败、超时或中断保留原目录和日志，重新运行会新建目录。当前这两个入口不支持 resume/update-sources，也不接受 `--model`；后续更新需要新环境和新证据。
+默认总预算为 900 秒；安装 ROCm wheel 较慢时可提高。Linux 下下载/安装保留 uv 的终端进度，例如 `torch 1.2 GiB/5.8 GiB`、`Preparing packages (12/74)`、`Installing wheels [12/74]`（示意，实际总数以解析为准）。源码安装展开编译输出，源码快照、动态库校验和依赖冻结显示各自阶段；大文件校验显示百分比与速度。每 5 秒额外报告耗时、最近输出和剩余预算。准备目录的 `progress.log` 提供可读阶段摘要，各步骤 `.log` 保留完整输出。已有 init 进程仍运行旧代码，新启动才使用这些显示。
+
+环境检查失败、超时或中断保留原目录和日志，重新运行会新建目录。当前这两个入口不支持 resume/update-sources，也不接受 `--model`；后续更新需要新环境和新证据。
 
 ## 用 ModelScope 下载模型
 

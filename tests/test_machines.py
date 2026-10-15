@@ -57,6 +57,12 @@ class MachineTests(unittest.TestCase):
             self.assertEqual(plan['commit'], 'a' * 40)
             self.assertEqual(plan['environment']['HIP_VISIBLE_DEVICES'], '0')
             self.assertNotIn('CUDA_VISIBLE_DEVICES', plan['environment'])
+            self.assertIn('%f/%t', plan['environment']['NINJA_STATUS'])
+            for item in plan['commands']:
+                if item['label'] in ('clone', 'fetch', 'submodules'):
+                    self.assertIn('--progress', item['argv'])
+                if item['label'] == 'build' and engine == 'llama':
+                    self.assertIn('--verbose', item['argv'])
             arguments = [arg for item in plan['commands'] for arg in item['argv']]
             self.assertNotIn('cu130', arguments)
             self.assertIn('strix-halo' if engine == 'ds4' else '-DGGML_HIP=ON', arguments)
@@ -73,7 +79,8 @@ class MachineTests(unittest.TestCase):
         self.assertIn('-DGGML_HIP=OFF', argv)
         self.assertIn('-DGGML_VULKAN=OFF', argv)
         self.assertIn('--config', argv)
-        self.assertEqual(plan['environment'], {})
+        self.assertIn('--verbose', next(item['argv'] for item in plan['commands'] if item['label'] == 'build'))
+        self.assertEqual(set(plan['environment']), {'NINJA_STATUS'})
 
     def test_700_positional_engines_delegate_existing_preparation(self):
         with patch('lab_tools.prepare.prepare', return_value=(self.root, 0)) as existing:

@@ -446,6 +446,12 @@ class NativeServingTests(unittest.TestCase):
             self.assertEqual(plan['environment']['VLLM_USE_PRECOMPILED'], '0')
             self.assertEqual(plan['environment']['TORCH_CUDA_ARCH_LIST'], '12.1a')
             self.assertEqual(plan['environment']['CUDA_VISIBLE_DEVICES'], '0')
+            self.assertIn('%f/%t', plan['environment']['NINJA_STATUS'])
+            for item in plan['commands']:
+                if item['label'] in ('venv', 'build-deps'):
+                    self.assertNotIn('--verbose', item['argv'])
+                elif item['argv'][:3] == ['uv', 'pip', 'install']:
+                    self.assertIn('--verbose', item['argv'])
             command = next(x['argv'] for x in plan['commands'] if x['label']=='framework-source-build')
             self.assertNotIn('--no-build-isolation', command)
             self.assertEqual(command[command.index('--no-build-isolation-package') + 1], engine)

@@ -47,19 +47,20 @@ def build_plan(root: Path, directory: Path, machine: str, engine: str, args) -> 
     env = {'HIP_VISIBLE_DEVICES': '0', 'ROCM_PATH': str(home), 'HIP_PATH': str(home),
            'HIPCXX': str(home / 'llvm/bin/clang'),
            'PATH': str(home / 'bin') + os.pathsep + os.environ.get('PATH', '')} if machine == '300' else {}
+    env['NINJA_STATUS'] = '[%f/%t %p | %e s] '
     local = root / 'sources' / name
     url = _git(root, 'config', '-f', '.gitmodules', '--get', f'submodule.sources/{name}.url')
     if (local / '.git').exists():
-        commands = [('clone', ['git', 'clone', '--no-hardlinks', '--no-checkout', str(local), str(source)], root)]
+        commands = [('clone', ['git', 'clone', '--progress', '--no-hardlinks', '--no-checkout', str(local), str(source)], root)]
     else:
         commands = [('git-init', ['git', 'init', str(source)], root),
                     ('remote', ['git', '-C', str(source), 'remote', 'add', 'origin', url], root),
-                    ('fetch', ['git', '-C', str(source), 'fetch', '--depth=1', 'origin', commit], root)]
+                    ('fetch', ['git', '-C', str(source), 'fetch', '--progress', '--depth=1', 'origin', commit], root)]
     commands.append(('checkout', ['git', '-C', str(source), 'checkout', '--detach', commit], root))
     git = ['git', '-C', str(source)]
     if args.offline:
         git += ['-c', 'protocol.allow=never', '-c', 'protocol.file.allow=always']
-    commands.append(('submodules', [*git, 'submodule', 'update', '--init', '--recursive'], root))
+    commands.append(('submodules', [*git, 'submodule', 'update', '--progress', '--init', '--recursive'], root))
     if engine == 'ds4':
         commands.append(('build', ['make', f'-j{args.jobs}', 'strix-halo',
                                    f'HIPCC={home / "bin/hipcc"}', 'ROCM_ARCH=gfx1151'], source))
@@ -73,7 +74,7 @@ def build_plan(root: Path, directory: Path, machine: str, engine: str, args) -> 
         if args.offline:
             configure += ['-DFETCHCONTENT_FULLY_DISCONNECTED=ON']
         commands += [('configure', configure, root),
-                     ('build', ['cmake', '--build', str(build), '--config', 'Release', '--parallel', str(args.jobs),
+                     ('build', ['cmake', '--build', str(build), '--verbose', '--config', 'Release', '--parallel', str(args.jobs),
                                 '--target', 'llama-server', 'llama-cli', 'llama-bench'], root)]
     return {'commit': commit, 'pin_ref': pin_ref, 'url': url, 'source': str(source), 'build': str(build),
             'environment': env, 'requires_local_source': args.offline,

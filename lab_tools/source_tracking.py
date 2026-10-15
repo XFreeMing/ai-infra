@@ -39,8 +39,10 @@ def update_sources(root: Path) -> None:
             except subprocess.CalledProcessError as error:
                 raise WorkflowError(f'{name} 更新失败（退出 {error.returncode}）；原分支及修改保留，请核对日志。') from error
         if not (path / '.git').exists():
-            run('git', 'submodule', 'update', '--init', '--', name)
-        run('git', '-C', name, 'fetch', 'origin', branch)
+            run('git', 'submodule', 'update', '--init', '--progress', '--', name)
+        # stderr is inherited, so Git's counters reach both interactive callers
+        # and redirected init logs. Force them when the caller is not a TTY.
+        run('git', '-C', name, 'fetch', '--progress', 'origin', branch)
         exists = subprocess.run(['git', '-C', name, 'show-ref', '--verify', '--quiet',
                                  f'refs/heads/{branch}'], cwd=root).returncode == 0
         if exists:

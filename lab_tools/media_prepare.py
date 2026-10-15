@@ -83,16 +83,17 @@ def plan_media(root: Path, app: str, directory: Path, args) -> dict:
     wheels = wheel_sources(app)
     # --torch-backend overrides package indexes with official overseas URLs.
     # Direct wheel requirements select only the GPU packages; PyPI stays on TUNA.
+    # uv verbose hides download bars; reserve it for the editable source build.
     uv = ['uv', 'pip', 'install', '--python', str(python), '--default-index', package_index]
     if args.offline:
         uv += ['--offline']
     command = [['git', 'init', str(source)],
                ['git', '-C', str(source), 'remote', 'add', 'origin', APPS[app]['repository']],
-               ['git', '-C', str(source), 'fetch', '--depth=1', 'origin', APPS[app]['commit']],
+               ['git', '-C', str(source), 'fetch', '--progress', '--depth=1', 'origin', APPS[app]['commit']],
                ['git', '-C', str(source), 'checkout', '--detach', APPS[app]['commit']],
                ['uv', 'venv', '--python', APPS[app]['python'], *(['--offline'] if args.offline else []), str(directory / 'venv')],
                [*uv, '-r', str(directory / 'runtime-requirements.txt'), *wheel_requirements(wheels)],
-               [*uv, '--no-deps', '-e', str(source)],
+               [*uv, '--verbose', '--no-deps', '-e', str(source)],
                [str(python), '-I', str(worker), 'probe', '--app', app, '--source', str(source), '--output', str(directory / 'provenance.json')]]
     home = rocm_home(args.rocm_home)
     return {'app': app, 'source_commit': APPS[app]['commit'], 'source_repository': APPS[app]['repository'],
@@ -102,6 +103,7 @@ def plan_media(root: Path, app: str, directory: Path, args) -> dict:
             'torch_wheel_mirror': MIRROR, 'rocm_wheel_sources': wheels,
             'environment': {'HIP_VISIBLE_DEVICES': '0', 'ROCM_PATH': str(home), 'HIP_PATH': str(home),
                             'UV_DEFAULT_INDEX': package_index, 'PIP_INDEX_URL': package_index,
+                            'NINJA_STATUS': '[%f/%t %p | %e s] ',
                             'HF_HUB_OFFLINE': '1', 'TRANSFORMERS_OFFLINE': '1', 'PYTHONNOUSERSITE': '1',
                             'GIT_LFS_SKIP_SMUDGE': '1',
                             'GRADIO_ANALYTICS_ENABLED': 'False', 'NLTK_DATA': str(directory / 'nltk_data')}}
@@ -151,15 +153,19 @@ def prepare_media(root: Path, app: str, args) -> tuple[Path, int]:
                 local = root / 'artifacts/research/ai300-media' / ('ideogram4' if app == 'ideogram4' else 'index-tts-v2')
                 if not (local / '.git').exists() or _git(local, 'rev-parse', 'HEAD') != APPS[app]['commit'] or _git(local, 'status', '--porcelain'):
                     raise WorkflowError('offline：缺少完整、干净的固定源码；先在线准备。')
-                step('clone-source', ['git', 'clone', '--no-hardlinks', str(local), str(source)])
+                step('clone-source', ['git', 'clone', '--progress', '--no-hardlinks', str(local), str(source)])
             else:
                 for index, command in enumerate(plan['commands'][:4]):
                     step(f'source-{index}', command)
+            print('准备源码适配与运行文件快照…', flush=True)
+            recorder.progress('准备源码适配与运行文件快照')
             manifest['source_adapter'] = patch_source(source, app)
             manifest['runtime_files'] = runtime_files(root, directory / 'runtime')
             manifest['source_files'] = {str(path): sha256(path) for path in source.rglob('*.py')}
             manifest['source_files'][str(source / 'pyproject.toml')] = sha256(source / 'pyproject.toml')
             manifest['source_patch_diff'] = _git(source, 'diff')
+            print(f'源码快照完成：{len(manifest["source_files"])} 个文件。', flush=True)
+            recorder.progress(f'源码快照完成：{len(manifest["source_files"])} 个文件')
             for name, command in zip(('venv', 'runtime-dependencies', 'package-install'), plan['commands'][4:7]):
                 step(name, command)
             # g2p-en's small lexicon/POS resources are runtime language data, not TTS checkpoints.
@@ -171,13 +177,16 @@ def prepare_media(root: Path, app: str, args) -> tuple[Path, int]:
             step('rocm-runtime-import-probe', plan['commands'][7], limit=60)
             manifest['provenance'] = json.loads((directory / 'provenance.json').read_text(encoding='utf-8'))
             torch_dir = Path(manifest['provenance']['torch_path']).parent
+            print('校验 PyTorch 动态库身份，大文件将显示字节进度…', flush=True)
+            recorder.progress('校验 PyTorch 动态库身份')
             manifest['runtime_extensions'] = {str(p): sha256(p) for p in torch_dir.glob('_C*.so')}
             manifest['runtime_extensions'].update({str(p): sha256(p) for p in (torch_dir / 'lib').glob('lib*torch*.so')})
-            freeze = subprocess.run(['uv', 'pip', 'freeze', '--python', plan['python']], capture_output=True,
-                                    text=True, timeout=30, check=True)
-            (directory / 'freeze.txt').write_text(freeze.stdout, encoding='utf-8')
+            freeze = step('freeze', ['uv', 'pip', 'freeze', '--python', plan['python']], limit=30)
+            (directory / 'freeze.txt').write_bytes((directory / freeze['log']).read_bytes())
             manifest['freeze_sha256'] = sha256(directory / 'freeze.txt')
             manifest['status'] = 'prepared'
+            print(f'{APPS[app]["name"]} 运行环境初始化完成。', flush=True)
+            recorder.progress(f'{APPS[app]["name"]} 运行环境初始化完成')
             return directory, 0
     except KeyboardInterrupt:
         manifest['status'] = 'interrupted'

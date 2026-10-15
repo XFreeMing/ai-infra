@@ -58,6 +58,13 @@ class MediaTests(unittest.TestCase):
                 self.assertIn('probe', commands[-1])
                 self.assertNotIn('run', commands[-1])
                 self.assertFalse(any('snapshot_download' in ' '.join(argv) for argv in commands))
+                self.assertIn('--progress', commands[2])
+                # uv verbose suppresses its download progress bars; reserve it
+                # for the explicit editable source build's backend output.
+                for command in commands[4:6]:
+                    self.assertNotIn('--verbose', command)
+                self.assertIn('--verbose', commands[6])
+                self.assertIn('%f/%t', manifest['plan']['environment']['NINJA_STATUS'])
                 self.assertNotIn('download_media.py', output)
         self.assertFalse((self.root / 'models').exists())
 

@@ -96,6 +96,8 @@ uv run 700 vllm 5555
 
 ## 来源与证据
 
+三个编号及旧别名的 init 共用实时记录器：Git 强制显示传输进度，CMake 展开编译命令，Ninja 显示完成数/总数与耗时。Linux 上 uv 保留下载字节和安装包数进度；每 5 秒补充当前步骤、耗时与最近输出。准备目录 `progress.log` 可用 `tail -f` 读取；逐步 `.log` 保留完整 stdout/stderr。工具没有提供总量时显示实际活动，不生成虚假的全流程百分比。Windows 使用实时文本和原生构建进度。
+
 构建源码优先读取干净子模块的实际 HEAD，未初始化时读取 parent index gitlink；不会自动追 main。`--update-sources` 是显式更新选项，会按原有流程更新所有干净子模块，随后冻结实际 commits；不能和 dry-run/check-only/offline/resume 混用。
 
 本轮配方的源代码依据：
