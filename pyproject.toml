@@ -1,12 +1,16 @@
 [project]
 name = "lab_tools"
 version = "0.1.0"
-description = "A reproducible AI infrastructure research workspace for Mac study and PGX experiments"
+description = "A reproducible AI infrastructure workspace for AI 100, AMD ROCm 300 and PGX CUDA 700"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = []
 
 [project.scripts]
+"100" = "lab_tools.machines:main_100"
+"300" = "lab_tools.machines:main_300"
+"700" = "lab_tools.machines:main_700"
+download = "lab_tools.media_download:main"
 lab_tools = "lab_tools.cli:main"
 init = "lab_tools.cli:init_main"
 ds4 = "lab_tools.serve_ds4:main"
@@ -21,6 +25,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 packages = ["lab_tools"]
+
+[tool.setuptools.package-data]
+lab_tools = ["media_models.json"]
 
 [[tool.uv.index]]
 name = "tuna"

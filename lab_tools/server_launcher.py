@@ -29,6 +29,8 @@ def resolve_server(root: Path, engine: str, binary: Path | None,
         if not manifest_path.is_file():
             continue
         manifest = json.loads(manifest_path.read_text())
+        if manifest.get('machine_id', '700') != '700' or manifest.get('backend', 'cuda') != 'cuda':
+            continue
         if manifest.get("status") != "prepared":
             continue
         builds = manifest.get("builds", {})
@@ -104,7 +106,7 @@ def launch(engine: str, model_path: Path, arguments: list[str], *, cuda_devices:
             if prepared and prepared.get("model", {}).get("path") == model["path"] and \
                prepared["model"].get("stat") == model["stat"] and prepared["model"].get("verified"):
                 model["sha256_verified_by_preparation"] = prepared["model"]["sha256"]
-            receipt = {"kind": "service_launch_request", "launch_id": output.name,
+            receipt = {"kind": "service_launch_request", "machine_id": "700", "backend": "cuda", "launch_id": output.name,
                        "requested_at": datetime.now(timezone.utc).isoformat(), "engine": engine,
                        "parent_commit": _git(root, "rev-parse", "HEAD"),
                        "parent_dirty": bool(_git(root, "status", "--porcelain")),

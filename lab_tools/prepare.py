@@ -557,7 +557,7 @@ def prepare_p0(root: Path, args: argparse.Namespace) -> tuple[Path, int]:
                 raise WorkflowError('冻结输入已变化，请新建准备目录。')
         attempt = len(list(directory.glob('attempt-*.json'))) + 1
         shutil.copyfile(directory / 'manifest.json', directory / f'attempt-{attempt}.json')
-    manifest = {'schema_version': 1, 'preparation_id': 'ds4-p0', 'run_id': directory.name,
+    manifest = {'schema_version': 1, 'preparation_id': 'ds4-p0', 'machine_id': '700', 'backend': 'cuda', 'run_id': directory.name,
                 'started_at': datetime.now(timezone.utc).isoformat(), 'status': 'preparing', 'commands': [],
                 'config': {key: str(value) if isinstance(value, Path) else value for key, value in vars(args).items()},
                 'ready_for_validation': False, 'gpu_inference_validated': False,

@@ -322,7 +322,7 @@ def manifest_base(root: Path, directory: Path, args, engines: set[str]) -> dict:
                                torch_requirement(engine, root / 'sources' / engine)
                                if (root / 'sources' / engine / '.git').exists() else None)
              for engine in sorted(engines & SOURCES.keys())}
-    return {'schema_version': 1, 'preparation_id': 'native-cuda', 'run_id': directory.name,
+    return {'schema_version': 1, 'preparation_id': 'native-cuda', 'machine_id': '700', 'backend': 'cuda', 'run_id': directory.name,
             'parent_commit': _git(root, 'rev-parse', 'HEAD'), 'started_at': datetime.now(timezone.utc).isoformat(),
             'selected_engines': sorted(engines), 'status': 'planned', 'commands': [], 'blockers': [],
             'cuda_home': str(home), 'build_timeout_seconds': args.build_timeout,

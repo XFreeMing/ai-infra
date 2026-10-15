@@ -36,6 +36,8 @@ def resolve_python(root: Path, engine: str, preparation_dir: Path | None,
         if not path.is_file():
             continue
         manifest = json.loads(path.read_text())
+        if manifest.get('machine_id', '700') != '700' or manifest.get('backend', 'cuda') != 'cuda':
+            continue
         record = manifest.get('frameworks', {}).get(engine, {})
         if record.get('prepared') and record.get('commit') == pin:
             # Do not resolve the venv Python symlink: doing so selects the base
@@ -202,7 +204,7 @@ print(json.dumps({'gpu':torch.cuda.get_device_name(0),'torch_cuda':torch.version
         parent.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
         directory = Path(tempfile.mkdtemp(prefix=f'{stamp}-{engine}-', dir=parent))
-        receipt = {'engine': engine, 'parent_commit': _git(root, 'rev-parse', 'HEAD'),
+        receipt = {'engine': engine, 'machine_id': '700', 'backend': 'cuda', 'parent_commit': _git(root, 'rev-parse', 'HEAD'),
                    'status': 'launch_requested', 'argv': command, 'environment': env,
                    'prepared': prepared, 'model': model_record,
                    'model_key': default_model_key if model.resolve() == default_model_path.resolve() else None,
