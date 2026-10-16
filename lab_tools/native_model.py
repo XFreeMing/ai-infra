@@ -8,7 +8,7 @@ from lab_tools.cli import WorkflowError
 from lab_tools.prepare import sha256
 from lab_tools.model_catalog import ModelKey, get_model
 
-MODEL_KEY = ModelKey.DEEPSEEK_V4_1_FLASH_NVFP4
+MODEL_KEY = ModelKey.NV_COMMUNITY__DEEPSEEK_V4_1_FLASH__FP8_NVFP4__SAFETENSORS
 _REFERENCE_MODEL = get_model(MODEL_KEY)
 MODEL_ID = _REFERENCE_MODEL.repository_id
 MODEL_REVISION = _REFERENCE_MODEL.revision

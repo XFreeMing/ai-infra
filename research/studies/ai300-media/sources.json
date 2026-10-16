@@ -1,0 +1,466 @@
+{
+  "reviewed_at": "2026-10-14T10:00:25.928417+00:00",
+  "machine_id": "300",
+  "code": [
+    {
+      "repository": "https://github.com/ideogram-oss/ideogram4",
+      "commit": "990fe1c4e950bb9e9dc90e01c0ad98ba434f83c2"
+    },
+    {
+      "repository": "https://github.com/index-tts/index-tts",
+      "tag": "v2.0.0",
+      "commit": "830f6f8f94a51fea23ab1d639027a86200075a4e"
+    }
+  ],
+  "model_sources": [
+    {
+      "repository": "ideogram-ai/ideogram-4-fp8",
+      "metadata_url": "https://huggingface.co/api/models/ideogram-ai/ideogram-4-fp8?blobs=true",
+      "revision": "ee79a7237b519f1402ceacf952f30c8a31ec5073",
+      "gated": "auto",
+      "selected_files": [
+        {
+          "path": ".gitattributes",
+          "size_bytes": 2088,
+          "lfs": null
+        },
+        {
+          "path": "LICENSE.md",
+          "size_bytes": 13647,
+          "lfs": null
+        },
+        {
+          "path": "README.md",
+          "size_bytes": 17382,
+          "lfs": null
+        },
+        {
+          "path": "assets/benchmarks/contralabs_typography.png",
+          "size_bytes": 78904,
+          "lfs": null
+        },
+        {
+          "path": "assets/benchmarks/contralabs_typography2.png",
+          "size_bytes": 66731,
+          "lfs": null
+        },
+        {
+          "path": "assets/benchmarks/design_arena.png",
+          "size_bytes": 927184,
+          "lfs": {
+            "sha256": "7c4aa9ba1d97567072ab743c8d3404b37da9099d389d43d329a7dd9a3e6faa43",
+            "size": 927184,
+            "pointerSize": 131
+          }
+        },
+        {
+          "path": "assets/benchmarks/design_arena2.png",
+          "size_bytes": 797977,
+          "lfs": {
+            "sha256": "b388372b6b3d00dfacccd3dc7b587e19918018109f7d066487f03d2f9745329c",
+            "size": 797977,
+            "pointerSize": 131
+          }
+        },
+        {
+          "path": "assets/benchmarks/ideogram_benchmark.png",
+          "size_bytes": 215925,
+          "lfs": {
+            "sha256": "695fa3419503880acc1ce7f25c259ed41d5276cf7c3f297b896fda56adea993c",
+            "size": 215925,
+            "pointerSize": 131
+          }
+        },
+        {
+          "path": "assets/benchmarks/lmarena_benchmark.png",
+          "size_bytes": 197756,
+          "lfs": {
+            "sha256": "e8a852a2ea0b71e227d254aa1488eaea223fbe9e61371a64f413678976a443e3",
+            "size": 197756,
+            "pointerSize": 131
+          }
+        },
+        {
+          "path": "assets/benchmarks/opensource.png",
+          "size_bytes": 327672,
+          "lfs": {
+            "sha256": "d8d0b2dc5a5813dc1b4707e8d6f54f4a75ecab2feb30dda2327fc58b0f3dc253",
+            "size": 327672,
+            "pointerSize": 131
+          }
+        },
+        {
+          "path": "assets/benchmarks/opensource2.png",
+          "size_bytes": 163255,
+          "lfs": {
+            "sha256": "d5bce23395cad5c65539c29c084e1cf1511431a14efda283377f049d6d439e37",
+            "size": 163255,
+            "pointerSize": 131
+          }
+        },
+        {
+          "path": "assets/ideogram_logo.svg",
+          "size_bytes": 20920,
+          "lfs": null
+        },
+        {
+          "path": "assets/ideogram_logo_darkmode.svg",
+          "size_bytes": 20920,
+          "lfs": null
+        },
+        {
+          "path": "assets/samples/collage_landscape.jpg",
+          "size_bytes": 8181715,
+          "lfs": {
+            "sha256": "b98b2d7cde3e24c1f28341fb531898e0b09cfe03ccbdc978a14cf87ef8bb1987",
+            "size": 8181715,
+            "pointerSize": 132
+          }
+        },
+        {
+          "path": "model_index.json",
+          "size_bytes": 558,
+          "lfs": null
+        },
+        {
+          "path": "scheduler/scheduler_config.json",
+          "size_bytes": 487,
+          "lfs": null
+        },
+        {
+          "path": "text_encoder/config.json",
+          "size_bytes": 1570,
+          "lfs": null
+        },
+        {
+          "path": "text_encoder/model.safetensors",
+          "size_bytes": 8779278400,
+          "lfs": {
+            "sha256": "b094e8be345fc602b79eae674004cf44078e511f03d200980095244a0d1bcf46",
+            "size": 8779278400,
+            "pointerSize": 135
+          }
+        },
+        {
+          "path": "text_encoder/model.safetensors.index.json",
+          "size_bytes": 76111,
+          "lfs": null
+        },
+        {
+          "path": "tokenizer/chat_template.jinja",
+          "size_bytes": 5292,
+          "lfs": null
+        },
+        {
+          "path": "tokenizer/tokenizer.json",
+          "size_bytes": 11422650,
+          "lfs": {
+            "sha256": "be75606093db2094d7cd20f3c2f385c212750648bd6ea4fb2bf507a6a4c55506",
+            "size": 11422650,
+            "pointerSize": 133
+          }
+        },
+        {
+          "path": "tokenizer/tokenizer_config.json",
+          "size_bytes": 693,
+          "lfs": null
+        },
+        {
+          "path": "transformer/config.json",
+          "size_bytes": 523,
+          "lfs": null
+        },
+        {
+          "path": "transformer/diffusion_pytorch_model.safetensors",
+          "size_bytes": 9289792888,
+          "lfs": {
+            "sha256": "19e12b4d5bdfcf35e17e5f4d292f5301a69a30e02336a9f8645e4b82f8319a1b",
+            "size": 9289792888,
+            "pointerSize": 135
+          }
+        },
+        {
+          "path": "transformer/diffusion_pytorch_model.safetensors.index.json",
+          "size_bytes": 50386,
+          "lfs": null
+        },
+        {
+          "path": "unconditional_transformer/config.json",
+          "size_bytes": 537,
+          "lfs": null
+        },
+        {
+          "path": "unconditional_transformer/diffusion_pytorch_model.safetensors",
+          "size_bytes": 9289792888,
+          "lfs": {
+            "sha256": "83f7f7d1d0a409c1e9288b11c8ec44a03c95348d46851d6c184f054b6ec4626d",
+            "size": 9289792888,
+            "pointerSize": 135
+          }
+        },
+        {
+          "path": "unconditional_transformer/diffusion_pytorch_model.safetensors.index.json",
+          "size_bytes": 50386,
+          "lfs": null
+        },
+        {
+          "path": "vae/config.json",
+          "size_bytes": 959,
+          "lfs": null
+        },
+        {
+          "path": "vae/diffusion_pytorch_model.safetensors",
+          "size_bytes": 168120878,
+          "lfs": {
+            "sha256": "925ce3a08e8759174667f5e89384ba2b54dd81a87b7379dadb68a1a87b70b052",
+            "size": 168120878,
+            "pointerSize": 134
+          }
+        }
+      ],
+      "selected_bytes": 27549627282,
+      "metadata_sha256": "720bdc2cdd6a9ee1e10091d8f6c798434d0b1fab0e369df222738e52994e35aa",
+      "weights_downloaded": false
+    },
+    {
+      "repository": "IndexTeam/IndexTTS-2",
+      "metadata_url": "https://huggingface.co/api/models/IndexTeam/IndexTTS-2?blobs=true",
+      "revision": "740dcaff396282ffb241903d150ac011cd4b1ede",
+      "gated": false,
+      "selected_files": [
+        {
+          "path": ".gitattributes",
+          "size_bytes": 1730,
+          "lfs": null
+        },
+        {
+          "path": "LICENSE.txt",
+          "size_bytes": 10554,
+          "lfs": null
+        },
+        {
+          "path": "LICENSE_ZH.txt",
+          "size_bytes": 7336,
+          "lfs": null
+        },
+        {
+          "path": "README.md",
+          "size_bytes": 2511,
+          "lfs": null
+        },
+        {
+          "path": "bpe.model",
+          "size_bytes": 475997,
+          "lfs": {
+            "sha256": "b2a5ce8090d32da3642cc4f81fdc996376bc6dd3f4cd5e3d165f71120d9f2bc8",
+            "size": 475997,
+            "pointerSize": 131
+          }
+        },
+        {
+          "path": "config.yaml",
+          "size_bytes": 2882,
+          "lfs": null
+        },
+        {
+          "path": "feat1.pt",
+          "size_bytes": 57170,
+          "lfs": {
+            "sha256": "f219cb447d80216ba615666da2ff8d63ac544eee26657f3a7b278692bf7a67c4",
+            "size": 57170,
+            "pointerSize": 130
+          }
+        },
+        {
+          "path": "feat2.pt",
+          "size_bytes": 374866,
+          "lfs": {
+            "sha256": "9c4292e96dee535aea9a6206e9a0c856dd578dde9212acdb16dd3ada4d12bf80",
+            "size": 374866,
+            "pointerSize": 131
+          }
+        },
+        {
+          "path": "gpt.pth",
+          "size_bytes": 3484663079,
+          "lfs": {
+            "sha256": "baaaeb8b56328da81731dc540a85a7dee32eca9da28f174b05757cb651c602a4",
+            "size": 3484663079,
+            "pointerSize": 135
+          }
+        },
+        {
+          "path": "qwen0.6bemo4-merge/Modelfile",
+          "size_bytes": 360,
+          "lfs": null
+        },
+        {
+          "path": "qwen0.6bemo4-merge/added_tokens.json",
+          "size_bytes": 707,
+          "lfs": null
+        },
+        {
+          "path": "qwen0.6bemo4-merge/chat_template.jinja",
+          "size_bytes": 550,
+          "lfs": null
+        },
+        {
+          "path": "qwen0.6bemo4-merge/config.json",
+          "size_bytes": 727,
+          "lfs": null
+        },
+        {
+          "path": "qwen0.6bemo4-merge/generation_config.json",
+          "size_bytes": 117,
+          "lfs": null
+        },
+        {
+          "path": "qwen0.6bemo4-merge/merges.txt",
+          "size_bytes": 1671853,
+          "lfs": null
+        },
+        {
+          "path": "qwen0.6bemo4-merge/model.safetensors",
+          "size_bytes": 1192135096,
+          "lfs": {
+            "sha256": "11293257a8df593c154a8ecd5fc039f3076de35411e35f06d41b471e136f6641",
+            "size": 1192135096,
+            "pointerSize": 135
+          }
+        },
+        {
+          "path": "qwen0.6bemo4-merge/special_tokens_map.json",
+          "size_bytes": 616,
+          "lfs": null
+        },
+        {
+          "path": "qwen0.6bemo4-merge/tokenizer.json",
+          "size_bytes": 11422654,
+          "lfs": {
+            "sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4",
+            "size": 11422654,
+            "pointerSize": 133
+          }
+        },
+        {
+          "path": "qwen0.6bemo4-merge/tokenizer_config.json",
+          "size_bytes": 5433,
+          "lfs": null
+        },
+        {
+          "path": "qwen0.6bemo4-merge/vocab.json",
+          "size_bytes": 2776833,
+          "lfs": null
+        },
+        {
+          "path": "s2mel.pth",
+          "size_bytes": 1202198223,
+          "lfs": {
+            "sha256": "aae1bb12017cbb47e7a5ce537fc82f40b6b1deb71acdb9b8f25686f32714b636",
+            "size": 1202198223,
+            "pointerSize": 135
+          }
+        },
+        {
+          "path": "wav2vec2bert_stats.pt",
+          "size_bytes": 9343,
+          "lfs": {
+            "sha256": "c9c176c2b8850ab2e3ba828bbfa969deaf4566ce55db5f2687b8430b87526ad2",
+            "size": 9343,
+            "pointerSize": 129
+          }
+        }
+      ],
+      "selected_bytes": 5895818637,
+      "metadata_sha256": "cee623a30bc98d3921fcc8898f6cba38f6b6567149fe28d9e3da3aa3cc9869c8",
+      "weights_downloaded": false
+    },
+    {
+      "repository": "facebook/w2v-bert-2.0",
+      "metadata_url": "https://huggingface.co/api/models/facebook/w2v-bert-2.0?blobs=true",
+      "revision": "da985ba0987f70aaeb84a80f2851cfac8c697a7b",
+      "gated": false,
+      "selected_files": [
+        {
+          "path": "model.safetensors",
+          "size_bytes": 2322063736,
+          "lfs": {
+            "sha256": "eb890c9660ed6e3414b6812e27257b8ce5454365d5490d3ad581ea60b93be043",
+            "size": 2322063736,
+            "pointerSize": 135
+          }
+        }
+      ],
+      "selected_bytes": 2322063736,
+      "metadata_sha256": "fd25a8b73c25785fdbdf9313ab080c7348320591613ddb23125c5ad29e86319f",
+      "weights_downloaded": false
+    },
+    {
+      "repository": "amphion/MaskGCT",
+      "metadata_url": "https://huggingface.co/api/models/amphion/MaskGCT?blobs=true",
+      "revision": "265c6cef07625665d0c28d2faafb1415562379dc",
+      "gated": false,
+      "selected_files": [
+        {
+          "path": "semantic_codec/model.safetensors",
+          "size_bytes": 177183712,
+          "lfs": {
+            "sha256": "ec947271175d8cad75ec37e83aa487e27c97a0f72a303393772da5ffa84bddf2",
+            "size": 177183712,
+            "pointerSize": 134
+          }
+        }
+      ],
+      "selected_bytes": 177183712,
+      "metadata_sha256": "36d5f214a08449f4a26201fe69a79dc7412f034d0494fef153c90d804ada4e36",
+      "weights_downloaded": false
+    },
+    {
+      "repository": "funasr/campplus",
+      "metadata_url": "https://huggingface.co/api/models/funasr/campplus?blobs=true",
+      "revision": "e4b6ede7ce16997aff4ae69fbca1f0175e2afede",
+      "gated": false,
+      "selected_files": [
+        {
+          "path": "campplus_cn_common.bin",
+          "size_bytes": 28036335,
+          "lfs": {
+            "sha256": "3388cf5fd3493c9ac9c69851d8e7a8badcfb4f3dc631020c4961371646d5ada8",
+            "size": 28036335,
+            "pointerSize": 133
+          }
+        }
+      ],
+      "selected_bytes": 28036335,
+      "metadata_sha256": "1fe2c36e005a7e4c026b8837d6b36dd42fdcd6c3f22923371b4fbcf8fc6f06ff",
+      "weights_downloaded": false
+    },
+    {
+      "repository": "nvidia/bigvgan_v2_22khz_80band_256x",
+      "metadata_url": "https://huggingface.co/api/models/nvidia/bigvgan_v2_22khz_80band_256x?blobs=true",
+      "revision": "633ff708ed5b74903e86ff1298cf4a98e921c513",
+      "gated": false,
+      "selected_files": [
+        {
+          "path": "bigvgan_generator.pt",
+          "size_bytes": 449228171,
+          "lfs": {
+            "sha256": "e95ba25972d3de0628d99cd156e9315a9c018899bf739988959ebe3544080ced",
+            "size": 449228171,
+            "pointerSize": 134
+          }
+        }
+      ],
+      "selected_bytes": 449228171,
+      "metadata_sha256": "41dd6561300182034194811b9ead1b57939bd84ffecb53d5ecb76baf5652cf80",
+      "weights_downloaded": false
+    }
+  ],
+  "gpu_inference_validated": false,
+  "environment_status": "blocked_gpu_access",
+  "readiness_manifest": "/home/ops396/xiaolt1/workspace/ai-infra/artifacts/research/ai300-media/20261014T095427Z-preflight-8hs28qnp/manifest.json",
+  "inference_weight_bytes": {
+    "ideogram4": 27549627282,
+    "indextts2_with_auxiliary": 8872330591
+  }
+}

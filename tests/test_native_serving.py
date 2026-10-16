@@ -343,7 +343,7 @@ class NativeServingTests(unittest.TestCase):
 
     def test_freetoken_default_selection_changes_model_and_kv_geometry_together(self):
         self.freetoken_fixture()
-        key = ModelKey.QWEN3_8_FLASH_NEXT_FP8_BLOCK128
+        key = ModelKey.QWEN__QWEN3_8_FLASH_NEXT__FP8_BLOCK128__SAFETENSORS
         config = replace(freetoken_models.MODELS[key], model_path_override=self.directory, context_size=262144)
         output = io.StringIO()
         with patch.object(freetoken_models, 'DEFAULT_MODEL', key), \
@@ -370,7 +370,7 @@ class NativeServingTests(unittest.TestCase):
         execute.assert_not_called()
 
     def test_freetoken_init_plan_uses_selected_model_without_bf16_profile_label(self):
-        key = ModelKey.QWEN3_8_FLASH_NEXT_FP8_BLOCK128
+        key = ModelKey.QWEN__QWEN3_8_FLASH_NEXT__FP8_BLOCK128__SAFETENSORS
         output = io.StringIO()
         with patch.object(freetoken_models, 'DEFAULT_MODEL', key), \
              patch.object(prep, '_git', side_effect=self.git), \
@@ -399,7 +399,7 @@ class NativeServingTests(unittest.TestCase):
         self.assertEqual(set(MODEL_CATALOG), set(ModelKey))
         for key in ModelKey:
             self.assertIs(ModelKey(key.value), key)
-        key = ModelKey.DEEPSEEK_V4_1_FLASH_NVFP4
+        key = ModelKey.NV_COMMUNITY__DEEPSEEK_V4_1_FLASH__FP8_NVFP4__SAFETENSORS
         spec = get_model(key)
         frozen = model.profile(Path(__file__).resolve().parents[1])
         self.assertEqual(spec.repository_id, frozen['model_id'])
@@ -417,8 +417,8 @@ class NativeServingTests(unittest.TestCase):
             get_model(key.value)
 
     def test_freetoken_mismatched_registry_key_fails_before_launch(self):
-        bf16 = ModelKey.QWEN3_6_35B_A3B_BF16
-        fp8 = ModelKey.QWEN3_8_FLASH_NEXT_FP8_BLOCK128
+        bf16 = ModelKey.QWEN__QWEN3_6_35B_A3B__BF16__SAFETENSORS
+        fp8 = ModelKey.QWEN__QWEN3_8_FLASH_NEXT__FP8_BLOCK128__SAFETENSORS
         with patch.object(freetoken_models, 'DEFAULT_MODEL', bf16), \
              patch.dict(freetoken_models.MODELS, {bf16: freetoken_models.MODELS[fp8]}), \
              patch.object(launcher, 'launch') as launch, redirect_stderr(io.StringIO()):
@@ -446,6 +446,12 @@ class NativeServingTests(unittest.TestCase):
             self.assertEqual(plan['environment']['VLLM_USE_PRECOMPILED'], '0')
             self.assertEqual(plan['environment']['TORCH_CUDA_ARCH_LIST'], '12.1a')
             self.assertEqual(plan['environment']['CUDA_VISIBLE_DEVICES'], '0')
+            self.assertIn('%f/%t', plan['environment']['NINJA_STATUS'])
+            for item in plan['commands']:
+                if item['label'] in ('venv', 'build-deps'):
+                    self.assertNotIn('--verbose', item['argv'])
+                elif item['argv'][:3] == ['uv', 'pip', 'install']:
+                    self.assertIn('--verbose', item['argv'])
             command = next(x['argv'] for x in plan['commands'] if x['label']=='framework-source-build')
             self.assertNotIn('--no-build-isolation', command)
             self.assertEqual(command[command.index('--no-build-isolation-package') + 1], engine)

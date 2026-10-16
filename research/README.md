@@ -1,6 +1,6 @@
 # 研究记录
 
-最后更新：2026-10-13
+最后更新：2026-10-15
 
 围绕技术问题保存阅读过程，把一手资讯、作者讨论、固定版本源码和实验串起来。
 
@@ -12,6 +12,7 @@
 
 ## 已建立的专题
 
+- [AI 300 上运行 Ideogram4 和 IndexTTS2](studies/ai300-media/README.md)：已核对固定源码及权重；权限已解决、HIP 小探针通过，已新增 init/download/WebUI 入口；模型推理尚待验证。
 - [ds4 / DwarfStar：源码、性能、效果与横向调研](studies/ds4-inference/README.md)：静态调研已完成；兼容性、性能及任务效果尚待实际运行验证。
 - [antirez / Salvatore Sanfilippo](people/antirez.md)：从具体提交追踪其专用推理、状态恢复和质量评测工作。
 

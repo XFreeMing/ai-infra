@@ -92,6 +92,8 @@ def doctor(root: Path) -> dict[str, Any]:
         root, "status", "--porcelain", "--untracked-files=all", "--ignore-submodules=none",
     ))
     report["submodules"] = _submodules(root)
+    from lab_tools.machines import rocm_report
+    report["rocm"] = rocm_report()
     nvidia_smi = shutil.which("nvidia-smi")
     report["nvidia_smi"] = {"available": bool(nvidia_smi)}
     if nvidia_smi:
@@ -190,6 +192,12 @@ def _reject_hidden_changes(root: Path) -> None:
 
 
 def _stop_process_group(process: subprocess.Popen[bytes]) -> None:
+    if os.name == 'nt':
+        if process.poll() is None:
+            subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'],
+                           capture_output=True, timeout=10, check=False)
+            process.wait(timeout=10)
+        return
     try:
         os.killpg(process.pid, signal.SIGTERM)
     except ProcessLookupError:
@@ -226,7 +234,7 @@ def _resolve_command(root: Path, original: list[str]) -> tuple[list[str], str | 
     return command, executable
 
 
-def run_experiment(root: Path, slug: str, output_dir: Path) -> tuple[Path, int]:
+def run_experiment(root: Path, slug: str, output_dir: Path, *, machine_id: str | None = None) -> tuple[Path, int]:
     if os.name != "posix":
         raise WorkflowError("Experiment execution currently supports macOS and Linux.")
     config = _load_experiment(root, slug)
@@ -243,8 +251,10 @@ def run_experiment(root: Path, slug: str, output_dir: Path) -> tuple[Path, int]:
     directory = Path(tempfile.mkdtemp(prefix=prefix, dir=output_dir))
     command, executable = _resolve_command(root, config["command"])
     run_environment = {"AI_INFRA_RUN_DIR": str(directory), "AI_INFRA_RUN_ID": directory.name}
+    if machine_id:
+        run_environment['AI_INFRA_MACHINE_ID'] = machine_id
     manifest = {
-        "schema_version": 1, "run_id": directory.name, "experiment_id": slug,
+        "schema_version": 1, "run_id": directory.name, "experiment_id": slug, "machine_id": machine_id,
         "started_at": started_at.isoformat(), "finished_at": None,
         "status": "running", "exit_code": None, "process_exit_code": None,
         "project_root": str(root), "environment": _environment(), "config": config,

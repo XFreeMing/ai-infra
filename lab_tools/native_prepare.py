@@ -31,7 +31,7 @@ SOURCES = {
 PYTHON_VERSION = '3.12'
 TORCH_BACKEND = 'cu130'
 CUDA_ARCH = '12.1a'
-DEFAULT_PYPI_INDEX = 'https://pypi.tuna.tsinghua.edu.cn/simple'
+DEFAULT_PYPI_INDEX = 'https://mirrors.aliyun.com/pypi/simple'
 
 
 @contextmanager
@@ -248,6 +248,7 @@ def build_plan(engine: str, directory: Path, home: Path, jobs: int, offline: boo
     package_index = package_index or default_package_index(Path(__file__).resolve().parents[1])
     # Child commands run inside upstream clones, whose uv configuration may
     # differ from the parent workspace. Pass the parent's default explicitly.
+    # uv verbose hides download bars; enable it only for source-build steps.
     uv = ['uv', 'pip', 'install', '--python', str(python), '--default-index', package_index,
           '--torch-backend', TORCH_BACKEND]
     if offline:
@@ -260,7 +261,8 @@ def build_plan(engine: str, directory: Path, home: Path, jobs: int, offline: boo
            'VLLM_TARGET_DEVICE': 'cuda', 'VLLM_USE_PRECOMPILED': '0',
            'VLLM_PRECOMPILED_WHEEL_LOCATION': '', 'VLLM_DOCKER_BUILD_CONTEXT': '0',
            'VLLM_USE_PRECOMPILED_RUST': '0', 'SGLANG_BUILD_RUST_EXTS': 'none',
-           'PYTHONPATH': '', 'PYTHONNOUSERSITE': '1', 'UV_LOCK_TIMEOUT': '3600'}
+           'PYTHONPATH': '', 'PYTHONNOUSERSITE': '1', 'UV_LOCK_TIMEOUT': '3600',
+           'NINJA_STATUS': '[%f/%t %p | %e s] '}
     venv_args = ['uv', 'venv', '--python', PYTHON_VERSION, str(environment)]
     if offline:
         venv_args.append('--offline')
@@ -269,15 +271,15 @@ def build_plan(engine: str, directory: Path, home: Path, jobs: int, offline: boo
         commands += [
             ('build-deps', uv + [torch_spec, 'scikit-build-core>=0.10', 'cmake>=3.26.1',
                                   'ninja', 'wheel', 'setuptools>=61', 'setuptools-rust>=1.11', 'setuptools-scm>=8']),
-            ('kernel-source-build', uv + ['--no-build-isolation-package', 'sglang-kernel',
+            ('kernel-source-build', uv + ['--verbose', '--no-build-isolation-package', 'sglang-kernel',
                                           str(source / 'python/sglang/kernels/aot')]),
-            ('framework-source-build', uv + ['--no-build-isolation-package', 'sglang', '--editable', str(source / 'python')]),
+            ('framework-source-build', uv + ['--verbose', '--no-build-isolation-package', 'sglang', '--editable', str(source / 'python')]),
         ]
     elif engine == 'vllm':
         env['DIST_EXTRA_CONFIG'] = str(directory / engine / 'build-config.cfg')
         commands += [
             ('build-deps', uv + ['-r', str(source / 'requirements/build/cuda.txt')]),
-            ('framework-source-build', uv + ['--no-build-isolation-package', 'vllm', '--editable', str(source)]),
+            ('framework-source-build', uv + ['--verbose', '--no-build-isolation-package', 'vllm', '--editable', str(source)]),
         ]
     elif engine == 'freetoken':
         cache = directory / engine / 'kernel-cache'
@@ -288,7 +290,7 @@ def build_plan(engine: str, directory: Path, home: Path, jobs: int, offline: boo
                     'TRITON_CACHE_DIR': str(directory / engine / 'triton-cache')})
         commands += [
             ('build-deps', uv + [torch_spec, 'setuptools>=77', 'wheel', 'ninja']),
-            ('framework-source-build', uv + ['--no-build-isolation-package', 'freetoken', '--editable', str(source) + '[accel]']),
+            ('framework-source-build', uv + ['--verbose', '--no-build-isolation-package', 'freetoken', '--editable', str(source) + '[accel]']),
             ('kernel-source-build', [str(python), '-I', str(directory / 'build-freetoken-kernels.py'),
                                      str(cache), str(directory / engine / 'kernel-build'),
                                      str(directory / engine / 'kernel-build.json')]),
@@ -322,7 +324,7 @@ def manifest_base(root: Path, directory: Path, args, engines: set[str]) -> dict:
                                torch_requirement(engine, root / 'sources' / engine)
                                if (root / 'sources' / engine / '.git').exists() else None)
              for engine in sorted(engines & SOURCES.keys())}
-    return {'schema_version': 1, 'preparation_id': 'native-cuda', 'run_id': directory.name,
+    return {'schema_version': 1, 'preparation_id': 'native-cuda', 'machine_id': '700', 'backend': 'cuda', 'run_id': directory.name,
             'parent_commit': _git(root, 'rev-parse', 'HEAD'), 'started_at': datetime.now(timezone.utc).isoformat(),
             'selected_engines': sorted(engines), 'status': 'planned', 'commands': [], 'blockers': [],
             'cuda_home': str(home), 'build_timeout_seconds': args.build_timeout,
@@ -445,20 +447,20 @@ def _prepare_native(root: Path, args, engines: set[str], started: float | None =
                 if _git(source, 'status', '--porcelain', '--untracked-files=no'):
                     raise WorkflowError(f'恢复前发现 tracked 源码修改：{source}')
             elif (local / '.git').exists():
-                step('clone', ['git', 'clone', '--no-hardlinks', '--no-checkout', str(local), str(source)])
+                step('clone', ['git', 'clone', '--progress', '--no-hardlinks', '--no-checkout', str(local), str(source)])
             else:
                 if args.offline:
                     raise WorkflowError(f'offline：缺少本地 {engine} 源码。')
                 step('git-init', ['git', 'init', str(source)])
                 step('remote', ['git', '-C', str(source), 'remote', 'add', 'origin', SOURCES[engine]['url']])
-                step('fetch', ['git', '-C', str(source), 'fetch', '--depth=1', 'origin', plan['commit']])
+                step('fetch', ['git', '-C', str(source), 'fetch', '--progress', '--depth=1', 'origin', plan['commit']])
             step('checkout', ['git', '-C', str(source), 'checkout', '--detach', plan['commit']])
             if torch_requirement(engine, source) != plan['torch_requirement']:
                 raise WorkflowError(f'{engine} torch 要求与计划不一致；初始化本地子模块后重新生成计划。')
             git = ['git', '-C', str(source)]
             if args.offline:
                 git += ['-c', 'protocol.allow=never', '-c', 'protocol.file.allow=always']
-            step('submodules', git + ['submodule', 'update', '--init', '--recursive'])
+            step('submodules', git + ['submodule', 'update', '--progress', '--init', '--recursive'])
             manifest.setdefault('sources', {})[engine] = {
                 'commit': _git(source, 'rev-parse', 'HEAD'),
                 'nested_submodules': _git(source, 'submodule', 'status', '--recursive'),

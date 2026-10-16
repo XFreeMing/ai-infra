@@ -3,7 +3,7 @@ from pathlib import Path
 from lab_tools.model_catalog import ModelKey, get_model
 
 # 用户配置：本地目录，不填写在线 repo ID；脚本不会下载模型。
-MODEL_PATH = get_model(ModelKey.DEEPSEEK_V4_1_FLASH_NVFP4).model_path
+MODEL_PATH = get_model(ModelKey.NV_COMMUNITY__DEEPSEEK_V4_1_FLASH__FP8_NVFP4__SAFETENSORS).model_path
 PYTHON_EXECUTABLE: Path | None = None
 PREPARATION_DIR: Path | None = None
 CUDA_VISIBLE_DEVICES = '0'

@@ -19,6 +19,7 @@ import time
 import urllib.request
 
 from lab_tools.cli import WorkflowError, _git, _reject_hidden_changes, _stop_process_group, _write_manifest, doctor
+from lab_tools.init_progress import CommandOutput, TerminalText
 from lab_tools.source_tracking import source_revision
 
 STUDY = Path('research/studies/ds4-inference')
@@ -26,7 +27,7 @@ OLD_DS4 = 'd6b516abb4a286a423fdb4071a19f86a3d9ab9c0'
 SUPPORT = 'DeepSeek-V4-Flash-DSpark-support-0731.gguf'
 SCORE_LLAMA_SHA256 = 'a23dd490a85fc0f3a3c8c1af870c6d645b6721eb93bb4d3ed439b684082e57d0'
 OUTPUT_POLL_SECONDS = 0.2
-PROGRESS_INTERVAL_SECONDS = 20.0
+PROGRESS_INTERVAL_SECONDS = 5.0
 CUDA_PROBE = r'''#include <cuda_runtime.h>
 #include <stdio.h>
 #include <string.h>
@@ -82,6 +83,10 @@ def add_init_arguments(parser: argparse.ArgumentParser) -> None:
 def sha256(path: Path, limit: int | None = None) -> str:
     before = path.stat()
     digest = hashlib.sha256()
+    size = min(before.st_size, limit) if limit is not None else before.st_size
+    processed = 0
+    started = progress_at = time.monotonic()
+    announced = False
     with path.open('rb') as source:
         remaining = limit
         while remaining is None or remaining > 0:
@@ -91,11 +96,20 @@ def sha256(path: Path, limit: int | None = None) -> str:
                     raise WorkflowError(f'文件被截断：{path}')
                 break
             digest.update(chunk)
+            processed += len(chunk)
+            now = time.monotonic()
+            if now - progress_at >= PROGRESS_INTERVAL_SECONDS:
+                print(f'校验 SHA256：{path.name}｜{processed / max(size, 1):.1%}｜'
+                      f'{processed / 1024**2:.1f}/{size / 1024**2:.1f} MiB｜'
+                      f'{processed / 1024**2 / max(now - started, .001):.1f} MiB/s', flush=True)
+                progress_at, announced = now, True
             if remaining is not None:
                 remaining -= len(chunk)
     after = path.stat()
     if fingerprint(before) != fingerprint(after):
         raise WorkflowError(f'校验期间文件发生变化：{path}')
+    if announced:
+        print(f'校验完成：{path.name}｜{processed / 1024**2:.1f} MiB｜{time.monotonic() - started:.1f} 秒', flush=True)
     return digest.hexdigest()
 
 
@@ -155,13 +169,20 @@ class Recorder:
     def save(self) -> None:
         _write_manifest(self.directory, self.manifest)
 
+    def progress(self, text: str) -> None:
+        """Append readable stage/progress updates separately from untouched raw logs."""
+        with (self.directory / 'progress.log').open('a', encoding='utf-8') as stream:
+            stream.write(datetime.now(timezone.utc).isoformat() + ' ' + text + '\n')
+
     def command(self, label: str, argv: list[str], cwd: Path, timeout: float | None = None,
                 env: dict | None = None) -> dict:
         index = len(self.manifest['commands'])
-        overrides = {'PYTHONUNBUFFERED': '1', **(env or {})}
+        overrides = {'PYTHONUNBUFFERED': '1', 'UV_NO_PROGRESS': 'false', 'PIP_PROGRESS_BAR': 'on',
+                     'NINJA_STATUS': '[%f/%t %p | %e s] ', **(env or {})}
         record = {'label': label, 'argv': argv, 'cwd': str(cwd), 'timeout_seconds': timeout,
                   'environment_overrides': overrides, 'log': f'{index:02d}-{label}.log',
-                  'status': 'running', 'started_at': datetime.now(timezone.utc).isoformat()}
+                  'status': 'running', 'started_at': datetime.now(timezone.utc).isoformat(),
+                  'runner_pid': os.getpid()}
         self.manifest['commands'].append(record)
         self.save()
         started = time.monotonic()
@@ -179,8 +200,12 @@ class Recorder:
                 break
         budget = '不限时（Ctrl+C 可中断）' if timeout is None else f'{timeout:.1f} 秒'
         print(f'命令：{shlex.join(argv)}\n工作目录：{cwd}\n'
-              f'超时预算：{budget}\n日志：{log_path.resolve()}', flush=True)
+              f'超时预算：{budget}\n日志：{log_path.resolve()}\n'
+              f'阶段进度：{self.directory / "progress.log"}', flush=True)
+        self.progress(f'开始 [{index + 1}] {label}｜命令：{shlex.join(argv)}')
         decoder = codecs.getincrementaldecoder('utf-8')(errors='replace')
+        terminal = TerminalText()
+        interactive = getattr(sys.stdout, 'isatty', lambda: False)()
 
         def forward_output(reader) -> bool:
             # Keep the raw log unchanged, even for split UTF-8 / carriage-return
@@ -193,20 +218,38 @@ class Recorder:
                 if not data:
                     break
                 copied = True
-                sys.stdout.write(decoder.decode(data))
+                text = decoder.decode(data)
+                plain = terminal.feed(text)
+                sys.stdout.write(plain if record.get('output_mode') == 'pty' and not interactive else text)
             if copied:
                 sys.stdout.flush()
             return copied
 
         try:
-            with log_path.open('wb') as log, log_path.open('rb') as reader:
-                process = subprocess.Popen(argv, cwd=cwd, stdout=log, stderr=subprocess.STDOUT,
-                                           start_new_session=True, env={**os.environ, **overrides})
+            with log_path.open('wb') as log, log_path.open('rb') as reader, CommandOutput(argv, log) as output:
+                record['output_mode'] = output.mode
+                if output.fallback:
+                    print(output.fallback, flush=True)
+                    self.progress(output.fallback)
+                if output.mode == 'pty':
+                    overrides['TERM'] = 'xterm-256color'
+                child_env = {**os.environ, **overrides}
+                if output.requested:
+                    # Any external RUST_LOG disables uv bars; warn also hides build logs.
+                    child_env.pop('RUST_LOG', None)
+                    record['environment_removed'] = ['RUST_LOG']
+                self.save()
+                process = subprocess.Popen(argv, cwd=cwd, stdout=output.stdout, stderr=subprocess.STDOUT,
+                                           start_new_session=True, env=child_env)
+                output.spawned()
+                record['child_pid'] = process.pid
+                self.save()
                 try:
                     deadline = started + max(0.01, timeout) if timeout is not None else None
                     next_progress = started + PROGRESS_INTERVAL_SECONDS
                     last_output = started
                     while True:
+                        output.drain()
                         if forward_output(reader):
                             last_output = time.monotonic()
                         now = time.monotonic()
@@ -220,8 +263,18 @@ class Recorder:
                             break
                         if now >= next_progress:
                             budget = '不限时' if remaining is None else f'剩余预算 {remaining:.1f} 秒'
-                            print(f'\n进行中：{label}｜已用 {now - started:.1f} 秒｜'
-                                  f'{now - last_output:.1f} 秒无新增输出｜{budget}', flush=True)
+                            message = (f'进行中：{label}｜已用 {now - started:.1f} 秒｜'
+                                       f'{now - last_output:.1f} 秒无新增输出｜{budget}')
+                            if terminal.latest:
+                                message += '\n最近输出：' + terminal.latest
+                            # Native bars/logs already show activity. Only add a console
+                            # heartbeat after a full interval with no child output.
+                            if now - last_output >= PROGRESS_INTERVAL_SECONDS:
+                                print('\n' + message, flush=True)
+                            self.progress(message)
+                            record.update(last_output=terminal.latest, output_bytes=reader.tell(),
+                                          elapsed_seconds=round(now - started, 1))
+                            self.save()
                             next_progress = now + PROGRESS_INTERVAL_SECONDS
                         try:
                             process.wait(timeout=OUTPUT_POLL_SECONDS if remaining is None
@@ -229,10 +282,15 @@ class Recorder:
                         except subprocess.TimeoutExpired:
                             pass
                 except KeyboardInterrupt:
-                    record.update(exit_code=130, status='interrupted')
+                    record.update(exit_code=130, status='interrupted',
+                                  interruption_reason='keyboard_interrupt',
+                                  interruption_receiver='init_runner',
+                                  child_returncode_before_cleanup=process.poll())
                     raise
                 finally:
                     _stop_process_group(process)
+                    record['child_returncode'] = process.returncode
+                    output.drain()
                     forward_output(reader)
                     tail = decoder.decode(b'', final=True)
                     if tail:
@@ -243,11 +301,18 @@ class Recorder:
         finally:
             record['duration_seconds'] = round(time.monotonic() - started, 3)
             record['finished_at'] = datetime.now(timezone.utc).isoformat()
+            record['last_output'] = terminal.latest
             self.save()
             status = {'succeeded': '完成', 'failed': '失败', 'timed_out': '超时',
                       'launch_error': '启动失败', 'interrupted': '已中断'}.get(record['status'], '未完成')
             print(f'\n步骤{status}：{label}｜耗时 {record["duration_seconds"]:.1f} 秒｜'
                   f'退出码 {record.get("exit_code", "未知")}\n日志：{log_path.resolve()}', flush=True)
+            self.progress(f'步骤{status} [{index + 1}] {label}｜耗时 {record["duration_seconds"]:.1f} 秒｜'
+                          f'退出码 {record.get("exit_code", "未知")}')
+            if record.get('interruption_reason') == 'keyboard_interrupt':
+                reason = '中断原因：init 收到 KeyboardInterrupt（通常由 Ctrl+C、终端停止或外部 SIGINT 触发）；未记录发送者。'
+                print(reason, flush=True)
+                self.progress(reason)
             if record.get('error'):
                 print(f'详情：{record["error"]}', flush=True)
         return record
@@ -281,7 +346,7 @@ def prepare_sources(root: Path, reference: dict, recorder: Recorder, offline: bo
             if offline:
                 raise WorkflowError(f'离线模式缺少 sources/{name}；先初始化固定子模块。')
             recorder.require(f'init-{name.replace(".", "-")}',
-                             ['git', 'submodule', 'update', '--init', '--depth', '1', '--', f'sources/{name}'], root)
+                             ['git', 'submodule', 'update', '--init', '--progress', '--depth', '1', '--', f'sources/{name}'], root)
         _reject_hidden_changes(path)
         if _git(path, 'status', '--porcelain', '--untracked-files=all'):
             raise WorkflowError(f'sources/{name} 必须干净；不会重置本地修改。')
@@ -291,7 +356,7 @@ def prepare_sources(root: Path, reference: dict, recorder: Recorder, offline: bo
             except WorkflowError:
                 if offline:
                     raise WorkflowError(f'offline：缺少历史 {name} 提交 {commit}。')
-                recorder.require(f'fetch-frozen-{name}', ['git', 'fetch', '--depth', '1', 'origin', commit], path)
+                recorder.require(f'fetch-frozen-{name}', ['git', 'fetch', '--progress', '--depth', '1', 'origin', commit], path)
         else:
             commit, _ = source_revision(root, name, _git)
         sources[name] = {'path': str(path), 'commit': commit}
@@ -303,7 +368,7 @@ def prepare_sources(root: Path, reference: dict, recorder: Recorder, offline: bo
     except WorkflowError:
         if offline:
             raise WorkflowError('离线模式缺少 R2 旧提交对象。')
-        recorder.require('fetch-ds4-old', ['git', 'fetch', '--depth', '1', 'origin', OLD_DS4], ds4)
+        recorder.require('fetch-ds4-old', ['git', 'fetch', '--progress', '--depth', '1', 'origin', OLD_DS4], ds4)
     parents = [line[7:] for line in _git(ds4, 'cat-file', '-p', reference['engines']['ds4']).splitlines()
                if line.startswith('parent ')]
     if parents != [OLD_DS4]:
@@ -362,17 +427,24 @@ def prepare_support(root: Path, models: Path, reference: dict, recorder: Recorde
                     raise WorkflowError('服务器未接受续传 Range；保留 incomplete，请移走后重试。')
                 with pending.open('ab' if offset else 'wb') as output:
                     total = offset
-                    progress_at = time.monotonic()
-                    while chunk := response.read(8 * 1024 * 1024):
+                    started = progress_at = time.monotonic()
+                    print(f'DSpark support：{total / max(identity["size_bytes"], 1):.1%}｜'
+                          f'{total / 1024**2:.1f}/{identity["size_bytes"] / 1024**2:.1f} MiB', flush=True)
+                    while chunk := response.read(64 * 1024):
                         total += len(chunk)
                         if total > identity['size_bytes']:
                             raise WorkflowError('DSpark support 下载超出冻结大小；保留 incomplete。')
                         if deadline is not None and time.monotonic() > deadline:
                             raise WorkflowError(f'DSpark support 下载超出 {timeout} 秒预算；保留 incomplete。')
                         output.write(chunk)
-                        if time.monotonic() - progress_at >= 30:
-                            print(f'DSpark support：{total / 1024**3:.2f}/{identity["size_bytes"] / 1024**3:.2f} GiB', flush=True)
-                            progress_at = time.monotonic()
+                        now = time.monotonic()
+                        if now - progress_at >= PROGRESS_INTERVAL_SECONDS or total == identity['size_bytes']:
+                            rate = (total - offset) / max(now - started, .001)
+                            eta = (identity['size_bytes'] - total) / max(rate, 1)
+                            print(f'DSpark support：{total / max(identity["size_bytes"], 1):.1%}｜'
+                                  f'{total / 1024**2:.1f}/{identity["size_bytes"] / 1024**2:.1f} MiB｜'
+                                  f'{rate / 1024**2:.2f} MiB/s｜预计剩余 {eta:.0f} 秒', flush=True)
+                            progress_at = now
         if pending.stat().st_size != identity['size_bytes'] or sha256(pending) != identity['sha256']:
             raise WorkflowError('DSpark support 下载校验失败；保留 incomplete。')
         pending.replace(target)
@@ -458,7 +530,7 @@ def build_all(root: Path, sources: dict, home: Path, args: argparse.Namespace, r
         builds[name] = {'commit': commit, 'source': str(destination), 'status': 'preparing'}
         recorder.manifest['builds'] = builds
         recorder.save()
-        run(f'clone-{name}', ['git', 'clone', '--no-hardlinks', '--no-checkout', '--', sources[engine]['path'], str(destination)], root)
+        run(f'clone-{name}', ['git', 'clone', '--progress', '--no-hardlinks', '--no-checkout', '--', sources[engine]['path'], str(destination)], root)
         run(f'checkout-{name}', ['git', 'checkout', '--detach', commit], destination)
         if engine == 'ds4':
             run(f'build-{name}', ['make', f'-j{args.jobs}', 'cuda-spark', f'CUDA_HOME={home}'], destination)
@@ -469,7 +541,7 @@ def build_all(root: Path, sources: dict, home: Path, args: argparse.Namespace, r
                                     '-DCMAKE_CUDA_ARCHITECTURES=121a-real', f'-DCUDAToolkit_ROOT={home}',
                                     f'-DCMAKE_CUDA_COMPILER={home / "bin/nvcc"}', '-DCMAKE_BUILD_TYPE=Release',
                                     '-DLLAMA_OPENSSL=OFF', '-DLLAMA_BUILD_TESTS=OFF'], destination)
-            run('build-llama', ['cmake', '--build', str(build), '--parallel', str(args.jobs), '--target',
+            run('build-llama', ['cmake', '--build', str(build), '--verbose', '--parallel', str(args.jobs), '--target',
                                 'llama-cli', 'llama-server', 'llama-bench', 'llama-tokenize'], destination)
             binaries = [build / 'bin' / binary for binary in ('llama-cli', 'llama-server', 'llama-bench', 'llama-tokenize')]
         builds[name]['binaries'] = []
@@ -557,7 +629,7 @@ def prepare_p0(root: Path, args: argparse.Namespace) -> tuple[Path, int]:
                 raise WorkflowError('冻结输入已变化，请新建准备目录。')
         attempt = len(list(directory.glob('attempt-*.json'))) + 1
         shutil.copyfile(directory / 'manifest.json', directory / f'attempt-{attempt}.json')
-    manifest = {'schema_version': 1, 'preparation_id': 'ds4-p0', 'run_id': directory.name,
+    manifest = {'schema_version': 1, 'preparation_id': 'ds4-p0', 'machine_id': '700', 'backend': 'cuda', 'run_id': directory.name,
                 'started_at': datetime.now(timezone.utc).isoformat(), 'status': 'preparing', 'commands': [],
                 'config': {key: str(value) if isinstance(value, Path) else value for key, value in vars(args).items()},
                 'ready_for_validation': False, 'gpu_inference_validated': False,

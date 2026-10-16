@@ -6,7 +6,7 @@ from lab_tools.cli import WorkflowError
 from lab_tools.native_model import contained_file, inspect_model
 from lab_tools.model_catalog import ModelKey, get_model
 
-MODEL_DIR = get_model(ModelKey.QWEN3_6_35B_A3B_BF16).model_path
+MODEL_DIR = get_model(ModelKey.QWEN__QWEN3_6_35B_A3B__BF16__SAFETENSORS).model_path
 PROFILE = Path('research/studies/freetoken-inference/NATIVE_MODEL.json')
 
 

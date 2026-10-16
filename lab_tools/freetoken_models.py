@@ -6,7 +6,7 @@ from lab_tools.cli import WorkflowError
 from lab_tools.model_catalog import ModelKey, get_model
 
 
-DEFAULT_MODEL = ModelKey.QWEN3_6_35B_A3B_BF16
+DEFAULT_MODEL = ModelKey.QWEN__QWEN3_6_35B_A3B__BF16__SAFETENSORS
 
 
 @dataclass(frozen=True)
@@ -48,14 +48,14 @@ class FreeTokenModelConfig:
 
 
 MODELS: dict[ModelKey, FreeTokenModelConfig] = {
-    ModelKey.QWEN3_6_35B_A3B_BF16: FreeTokenModelConfig(
-        model=ModelKey.QWEN3_6_35B_A3B_BF16,
+    ModelKey.QWEN__QWEN3_6_35B_A3B__BF16__SAFETENSORS: FreeTokenModelConfig(
+        model=ModelKey.QWEN__QWEN3_6_35B_A3B__BF16__SAFETENSORS,
         context_size=262144,
         page_size=1,
     ),
     # 格式有 reader；此 FP8 checkpoint 的文本权重已超过单 GB10 总内存。
-    ModelKey.QWEN3_8_FLASH_NEXT_FP8_BLOCK128: FreeTokenModelConfig(
-        model=ModelKey.QWEN3_8_FLASH_NEXT_FP8_BLOCK128,
+    ModelKey.QWEN__QWEN3_8_FLASH_NEXT__FP8_BLOCK128__SAFETENSORS: FreeTokenModelConfig(
+        model=ModelKey.QWEN__QWEN3_8_FLASH_NEXT__FP8_BLOCK128__SAFETENSORS,
         context_size=4096,
         page_size=64,
         extra_args=('--ple-backend', 'disk'),
