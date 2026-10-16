@@ -73,6 +73,14 @@ class MediaTests(unittest.TestCase):
             self.assertEqual(self.invoke('300', 'init', 'Ideogram4', 'Indextts2', '--dry-run')[0], 0)
         self.assertEqual([call.args[1] for call in init.call_args_list], ['ideogram4', 'indextts2'])
 
+    def test_init_enables_gfx1151_fused_attention_only_for_ideogram(self):
+        flag = 'TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL'
+        with patch.dict(os.environ, {flag: '0'}):
+            image = prepare.plan_media(self.root, 'ideogram4', self.root / 'image', self.args)
+            audio = prepare.plan_media(self.root, 'indextts2', self.root / 'audio', self.args)
+        self.assertEqual(image['environment'][flag], '1')
+        self.assertNotIn(flag, audio['environment'])
+
     def test_runtime_uses_domestic_index_and_keeps_rocm_wheels(self):
         for app in models.APPS:
             plan = prepare.plan_media(self.root, app, self.root / app, self.args)
@@ -212,6 +220,30 @@ class MediaTests(unittest.TestCase):
             self.assertEqual(plan['environment']['HF_HUB_OFFLINE'], '1')
             execute.assert_not_called()
 
+    def test_launch_overrides_old_ideogram_attention_setting_without_changing_tts(self):
+        flag = 'TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL'
+        for app in ('ideogram4', 'indextts2'):
+            for old_value in (None, '0'):
+                with self.subTest(app=app, old_value=old_value):
+                    old_env = {'NLTK_DATA': '/prepared/nltk_data'}
+                    if old_value is not None:
+                        old_env[flag] = old_value
+                    manifest = {'python': '/prepared/python', 'worker': '/prepared/worker',
+                                'source': '/prepared/source', 'environment': old_env.copy()}
+                    with patch.object(launch, 'resolve_runtime',
+                                      return_value=(manifest, self.root / 'prepared/manifest.json')):
+                        code, output, error = self.invoke('300', app, '--dry-run')
+                    self.assertEqual(code, 0, error)
+                    env = json.loads(output)['environment']
+                    if app == 'ideogram4':
+                        self.assertEqual(env[flag], '1')
+                    elif old_value is None:
+                        self.assertNotIn(flag, env)
+                    else:
+                        self.assertEqual(env[flag], old_value)
+                    self.assertEqual(env['NLTK_DATA'], old_env['NLTK_DATA'])
+                    self.assertEqual(manifest['environment'], old_env)
+
     def test_prompt_file_and_reference_are_forwarded_as_literal_arguments(self):
         path = self.root / 'literal $(no-shell).json'
         path.write_text('{"high_level_description":"a red boat"}')
@@ -221,6 +253,7 @@ class MediaTests(unittest.TestCase):
         self.assertEqual(args[args.index('--prompt') + 1], path.read_text())
 
     def test_missing_models_never_exec_or_trigger_download(self):
+        (self.root / 'manifest.json').write_text('{}')
         manifest = {'python': '/python', 'worker': '/worker', 'source': '/source', 'environment': {}}
         with patch.object(launch, 'resolve_runtime', return_value=(manifest, self.root / 'manifest.json')), \
              patch.object(launch, 'require_host'), patch.object(launch.os, 'execve') as execute, \

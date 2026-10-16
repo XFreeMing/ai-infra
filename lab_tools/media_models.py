@@ -20,6 +20,14 @@ APPS = {
 TORCH_VERSION = '2.11.0+rocm7.2'
 
 
+def runtime_environment(app: str) -> dict[str, str]:
+    """Current launch overrides, including for already prepared runtimes."""
+    # AOTriton 0.11.2 in the pinned ROCm wheel gates gfx1151 fused SDPA
+    # behind this flag. Without it, Ideogram's long sequences use math SDPA
+    # and materialize quadratic attention intermediates. Set before import.
+    return {'TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL': '1'} if app == 'ideogram4' else {}
+
+
 def app_name(value: str) -> str:
     key = value.casefold()
     if key not in APPS:

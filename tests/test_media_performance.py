@@ -50,6 +50,30 @@ class MediaPerformanceTests(unittest.TestCase):
             report = summarize(manifest, self.runtime(), {'sample_count': 10})
             self.assertIsNone(report['generation'][metric])
 
+    def test_blocked_without_worker_has_no_inference_measurements(self):
+        manifest = self.manifest('ideogram4')
+        manifest.update(status='blocked', commands=[], duration_seconds=0.68)
+        report = summarize(manifest, {}, {})
+        self.assertEqual(report['measurement_status'], 'not_started')
+        self.assertEqual(report['timings']['hello_wall_seconds'], 0.68)
+        self.assertIsNone(report['timings']['generation_seconds'])
+        self.assertIsNone(report['generation']['images_per_second'])
+        self.assertEqual(report['generation']['image_count'], 0)
+        self.assertTrue(all(value is None for value in report['artifacts'].values()))
+
+    def test_existing_worker_evidence_is_never_reported_as_not_started(self):
+        for commands, runtime, resources in [
+            ([{'label': 'generate', 'status': 'failed'}], {}, {}),
+            ([], {'phases': {'generation': {'status': 'running'}}}, {}),
+            ([], {}, {'sample_count': 1}),
+        ]:
+            manifest = self.manifest('ideogram4')
+            manifest.update(status='blocked', commands=commands)
+            report = summarize(manifest, runtime, resources)
+            self.assertEqual(report['measurement_status'], 'partial')
+        manifest.update(status='failed', commands=[])
+        self.assertEqual(summarize(manifest, {}, {})['measurement_status'], 'partial')
+
     def test_unsynchronized_or_incomplete_timings_cannot_measure_throughput(self):
         for key in ('gpu_synchronized_at_start', 'gpu_synchronized_at_end', 'duration_complete'):
             for missing in (False, True):

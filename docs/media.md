@@ -97,34 +97,42 @@ uv run download Ideogram4 --timeout 7200
 
 ## 快速验证 hello
 
-环境 init 和模型 download 完成后，可以直接生成一个小样本验证实际推理：
+环境 init 和模型 download 完成后，可以生成一张海报或一句配音验证实际推理：
 
 ```sh
-uv run 300 hello Ideogram4
+uv run 300 hello Ideogram4 --dry-run  # 2K 路径已触发 GPU reset，先查看保护计划
 uv run 300 hello Indextts2
 # 一次验证两个，串行运行
-uv run 300 hello Ideogram4 Indextts2
+uv run 300 hello Ideogram4 Indextts2 --dry-run
 ```
 
-Ideogram4 使用固定红船 JSON 提示词、256×256、12-step sampler 和 seed 0，生成一张 PNG，检查图片可解码、尺寸正确且非单一纯色。IndexTTS2 使用项目内置的上游演示参考人声，合成“你好，这是语音合成测试。”，检查 WAV 非空、数值有限、时长和音量合理。参考样本的固定来源、SHA256 和许可证见 [fixtures/README.md](../lab_tools/fixtures/README.md)；也可以使用自己的音频。
+Ideogram4 默认配置为 **1344×2016（宽×高）、严格 2:3、长边约 2K** 的竖版艺术海报，使用用户指定的莫奈／梵高／伦勃朗、蓝绿朦胧蝴蝶与金箔岩彩提示词，保留 12-step sampler 和 seed 0。原文完整保存在 [media_hello.py 的 IMAGE_PROMPT](../lab_tools/media_hello.py)，并写入 caption 的 `high_level_description`；六组海报文字另以结构化文字元素描述：`Don’t wait for inspiration`、`202X`、`LUOBOS`、`INSPIRATION`、`AIGC`、`Every great idea begins with a spark`。原文中的“64K高清画质”作为风格描述保留，默认目标尺寸为 1344×2016。宽高均按模型要求对齐到 16 像素，输出检查以本次配置为准，验证 PNG 可解码、尺寸正确且非单一纯色；文字拼写和视觉效果仍需看图判断。
+
+**此前 AI 300 的原 2K GPU 解码路径三次触发驱动重置和桌面崩溃，停止后台 Qwen 后仍复现，尚未修复底层稳定性。** 普通启动会在 worker 前拦截 Ideogram4 大于 512×512 的面积、可动态改尺寸的 WebUI，以及检测到其他 KFD 计算进程的情况，保留原配置而不静默降分辨率。`--experimental-gpu` 可显式越过并记录风险，仅用于受控排查；不是日常启动建议。`--width 384 --height 576` 可以准备小尺寸恢复验证，但阈值不是已验证安全上限。KFD 读取失败显示 unknown，不证明 GPU 空闲。详情见 [GPU 卡死调查](../experiments/media-rocm-attention/gpu-freeze.md)。
+
+`hello Ideogram4` 现默认 `--decode-device cpu`，将最后的 VAE 解码移到 CPU float32，前面的文本编码和采样仍用 GPU，以便隔离最后两次异常所在的 MIOpen 卷积路径。现有环境无需重新 init；常规 `uv run 300 Ideogram4` / WebUI 没有应用该 hello 专用旁路。**2026-10-16 用户执行的 384×576 和 1344×2016 混合 GPU/CPU 完整生成均已各通过一次**：小图总耗时 174.430 s、生成 40.102 s、CPU 解码 1.146 s；2K 总耗时 595.098 s、生成 482.235 s、CPU 解码 18.365 s。两次对应日志窗口均未见 GPU reset。2K 成功来自显式实验调用，不能证明连续运行稳定或旧 GPU 解码路径已修复，CPU 旁路仍不自动放开尺寸保护。`runtime-performance.json` 新增解码设备及编码/解码前同步/VAE 子阶段，控制台也显示这些边界。CPU float32 仍消耗内存，可能增加耗时和数值差异；后续对照继续使用明确预算并保留日志。
+
+IndexTTS2 使用项目内置的上游演示参考人声，合成“你好，这是语音合成测试。”，检查 WAV 非空、数值有限、时长和音量合理。参考样本的固定来源、SHA256 和许可证见 [fixtures/README.md](../lab_tools/fixtures/README.md)；也可以使用自己的音频。
 
 ```sh
 uv run 300 hello Indextts2 --reference /path/to/your.wav
-uv run 300 hello Ideogram4 --timeout 1800
+uv run 300 hello Ideogram4 --width 384 --height 576 --decode-device cpu --timeout 300 --dry-run
 uv run 300 hello Ideogram4 --dry-run
 uv run 300 hello Indextts2 --model-dir /another/IndexTTS-2
 ```
 
-默认每个应用总预算 900 秒，包含准备和生成阶段；首次模型加载也计入预算。`hello` 复用已准备的独立环境和本地模型，不安装依赖、不下载模型，不启动 WebUI。缺少环境或模型会提示相应的 init/download 命令。`--dry-run` 只读检查并显示执行计划，不生成文件。
+预算配置为 Ideogram4 3600 秒、IndexTTS2 900 秒，包含准备和生成阶段；首次模型加载也计入预算。此前 2K 运行超过旧预算时其实已发生内核 GPU 故障，**延长预算不能修复卡死，也不能保证及时打断 GPU**；该默认值不是已验证耗时或重试建议。显式 `--timeout` 优先，多目标分别使用各自预算。`hello` 复用已准备的独立环境和本地模型，不安装依赖、不下载模型，不启动 WebUI。缺少环境或模型会提示相应的 init/download 命令。`--dry-run` 只读检查并显示执行计划，不生成文件。
 
-每次运行使用新的 `artifacts/hello/300/<run-id>/`，保存输入配置、参考音频快照、生成结果、验证指标和逐步骤日志；终端显示进度、超时与最终输出路径。成功退出码为 0，失败为 2，超时为 124，中断为 130。只有实际生成和输出校验都通过才记录 `status=passed` 与 `gpu_inference_validated=true`；此结果代表小样本推理链路可用，不代表全面画质或语音质量评测。
+1344×2016 海报配置替代了此前的 256×256 红船样本；下方历史资源和耗时记录仍对应原来的小图，不能用于推断海报耗时。新海报已有一次 CPU 解码路径的完整成功记录，见下方验证状态；attention 内存处理与此前的 GPU 稳定性故障记录继续保留。
+
+每次运行使用新的 `artifacts/hello/300/<run-id>/`，保存输入配置、参考音频快照、生成结果、验证指标和逐步骤日志；终端显示进度、超时与最终输出路径。成功退出码为 0，失败为 2，超时为 124，中断为 130。只有实际生成和输出校验都通过才记录 `status=passed` 与 `gpu_inference_validated=true`；此结果代表本次配置的推理链路可用，不代表全面画质或语音质量评测。
 
 ### 生成过程的资源与性能记录
 
 两条命令默认每 2 秒采样并打印一行资源数据，显示阶段、已用时间、任务进程树 CPU、整机 CPU、进程 RSS、系统已用内存、GPU 利用率、VRAM/GTT、温度和 SoC 功耗。已有 prepared 环境直接可用，无需为监控重新 init；每次运行会保存测量代码快照，调用原有冻结 worker。
 
 ```sh
-uv run 300 hello Ideogram4 --sample-interval 1
+uv run 300 hello Ideogram4 --sample-interval 1 --dry-run
 uv run 300 hello Indextts2 --sample-interval 1
 ```
 
@@ -153,7 +161,21 @@ AI 300 的 RSS、VRAM、GTT 和 PyTorch allocated/reserved 含义不同、存在
 - `resources.jsonl`：逐次采样实时追加，便于观察或读取中断前的数据。
 - `runtime-performance.json`：模型加载/生成的同步时间、PyTorch 内存和各阶段 allocator 峰值。
 
+### 1344×2016 的 ROCm attention 内存修复
+
+2026-10-16 的失败运行 `20261016T013030Z-ideogram4-cwyx0r5p` 在 Qwen3-VL 编码阶段发生 GPU OOM：申请 3.90 GiB 时仅剩 3.83 GiB；模型加载已成功，900 秒预算没有耗尽。GPU 可分配窗口为 96 GiB，运行前全设备 GTT 已占约 30.15 GiB，失败过程采样峰值达 94.57 GiB。本次 PyTorch allocated/reserved 阶段峰值分别为 62.55/64.23 GiB，二者不能相加。
+
+固定上游实现将 849 个文本 token 与 10,584 个图像占位 token 一起送入 Qwen，序列长 11,433。该环境默认未启用 gfx1151 的实验性 fused SDPA，退回 math attention；32-head 的单份 FP32 attention 矩阵理论约 15.58 GiB，还存在其他中间量。PyTorch 2.11 文档说明 BF16/FP16 输入的 math 后端仍保留 FP32 中间量：[SDPA 文档](https://docs.pytorch.org/docs/2.11/generated/torch.nn.functional.scaled_dot_product_attention.html)。
+
+现已仅对 Ideogram4 的 `init`、常规启动、`hello` 子进程显式设置 `TORCH_ROCM_AOTRITON_ENABLE_EXPERIMENTAL=1`，在 import torch 前生效；已有 prepared 环境也应用该配置，无需重新 init。保持模型、原生尺寸、提示词和采样步数。该 wheel 自带 AOTriton，当前带 mask 输入实际可使用 memory-efficient attention；不能强制 Flash，因为它拒绝非空 mask。实现入口为 [runtime_environment](../lab_tools/media_models.py)，gate 和 mask 限制见 [PyTorch v2.11.0 SDPA dispatch](https://github.com/pytorch/pytorch/blob/v2.11.0/aten/src/ATen/native/transformers/cuda/sdp_utils.cpp)。
+
+本机探针已验证 Qwen（32 heads、128 head dimension）和 diffusion（18 heads、256 head dimension）在该配置下的小序列数值，以及实际 11,433 长度的执行与内存峰值。大序列单个 attention 调用新增 allocator 峰值约 0.488 GiB；这是算子探针，不能视为整模型占用或完整生图通过。原始 JSON、测试口径及重现方式见 [attention 实验](../experiments/media-rocm-attention/README.md)。
+
+同配置完整验证 `20261016T014220Z-ideogram4-7nuc_7i3` 使用干净独立快照和 1200 秒预算：应用未报告 OOM，整卡 GTT 采样峰值 76.90 GiB，生成阶段 GPU busy 平均 99.82%，未输出图片而以 `timed_out` 结束。**事后内核日志确认 09:54:33 已发生 GPU 队列超时和 Xorg 崩溃，busy 读数不能解释为正常计算进度。** 第二次 `20261016T021122Z-ideogram4-zuvsveid` 于 10:23 再次 GPU reset，生图进程与 Xorg 均 SIGABRT。**当时的完整 2K GPU 解码路径未通过且存在重复显示故障**；[性能 JSON](../artifacts/hello/300/20261016T014220Z-ideogram4-7nuc_7i3/performance.json)保留原始结果，新增证据与恢复步骤见 [GPU 卡死调查](../experiments/media-rocm-attention/gpu-freeze.md)，不要以增加超时代替排查。
+
 失败、超时或 Ctrl+C 后仍保留已采到的数据；未完成阶段不计算吞吐率，`measurement_status=partial` 表示记录不完整。采样、GPU 同步和日志会引入少量测量开销，结果用于本机这次小样本的观测。
+
+保护在生成进程启动前拦截时，控制台显示“启动已拦截”，不会再显示生成性能汇总或“性能记录不完整”。JSON 保留 `run_status=blocked`、`measurement_status=not_started`、前置检查耗时和空的生成指标，不将未运行解释为成功或生成失败。退出码仍为 2。`--timeout` 仅控制预算，不改变图片尺寸或保护规则；提示中的 384×576 CPU 解码命令是小尺寸隔离验证，编码和采样仍会使用 GPU，连续运行稳定性尚未确认。
 
 ## 启动本地 WebUI
 
@@ -192,6 +214,10 @@ uv run 300 Indextts2 --prompt "你好，这是配音测试。" --reference refer
 
 ## 验证状态
 
+**最新恢复结果（2026-10-16 12:04）：** 用户运行 1344×2016、12 步、GPU 编码/采样加 CPU 解码，通过生成及文件校验，run 为 `20261016T035410Z-ideogram4-rjbq82iy`，本地时段为 11:54:10–12:04:05。总耗时 595.098 s、模型加载 107.591 s、生成 482.235 s，其中 CPU VAE 解码 18.365 s；生成阶段 GPU 平均利用率 96.05%，整卡 GTT 峰值 37.87 GiB，系统可用内存最低 63.51 GiB，Swap 为 0。11:52–12:06 日志未见 GPU reset/hang、OOM 或 Xorg 崩溃，有一条 amdgpu 工作队列占用警告。图片氛围与肌理已形成，但主标题乱码、描述文字混入，需后期排版校对。该混合路径仅成功一次，不据此认定历史 GPU 故障已修复，保留启动保护。见 [2K 性能 JSON](../artifacts/hello/300/20261016T035410Z-ideogram4-rjbq82iy/performance.json)、[独立复核](../artifacts/reports/ai300-media-20261016/latest-2k-audit/summary.json)及附输入和成品的[产品实测报告](../artifacts/reports/ai300-media-20261016/deliverables/AI300生图与配音实测报告.html)。
+
+**此前小尺寸恢复结果（2026-10-16 11:17）：** 用户运行 `uv run 300 hello Ideogram4 --width 384 --height 576 --decode-device cpu --timeout 300` 通过。PNG 尺寸及 SHA256 校验通过，88 次资源采样及汇总复核一致；生成阶段 GPU busy 平均 94.65%，整卡 GTT 峰值 29.993 GiB，整程系统可用内存最低 66.132 GiB、Swap 为 0。GPU 负责编码/采样，CPU float32 VAE 解码已实际生效。11:13–11:19 日志未见 GPU timeout/reset 或 Xorg 崩溃，但有一条 amdgpu CPU hog 警告。图片有蓝绿金色肌理，主标题不完整且出现描述性中文字样，文件校验通过不等于文字排版质量合格。该配置仅成功一次，默认 2K 保护保留。见 [性能 JSON](../artifacts/hello/300/20261016T031424Z-ideogram4-w3t23g3p/performance.json) 与 [完整调查和后续步骤](../experiments/media-rocm-attention/gpu-freeze.md)。以下保留较早的验证记录。
+
 2026-10-15 本机会话已具备 render/video 权限，rocminfo 正常枚举 gfx1151。独立 HIP 小探针在 Radeon 8060S 上执行返回 42；设备报告总内存 96 GiB。证据为本机 `artifacts/media-validation-20261015/hip-smoke-adrnkk2x/manifest.json`，不涉及模型加载。
 
 2026-10-16 本机实测：使用 `/home/ops396/models` 中已有模型，两条 `hello` 均在 Radeon 8060S / gfx1151、torch 2.11.0+rocm7.2 上实际生成并通过输出检查；本轮没有下载模型。时长包含本地身份检查、模型加载、生成和输出验证，是单次观测，不能作为性能基准。
@@ -212,6 +238,6 @@ uv run 300 Indextts2 --prompt "你好，这是配音测试。" --reference refer
 
 此次图片生成速率约 0.0471 张/s；音频时长 3.193 s，生成 RTF 为 11.760（约 0.085 倍实时速度），端到端 RTF 为 21.745。采样进程 RSS 峰值分别为 35.33 / 7.26 GiB；整卡 GPU 利用率采样均值为 19.67% / 49.26%，两者最大值均为 100%。这些整程均值包含加载等阶段，生成阶段的独立统计在 `resources.by_phase.generation` 中。整卡读数包含已有显存/GTT占用；不将本次最大值解读为任务独占消耗。
 
-已逐项核对 JSONL 与 JSON samples 一致、采样数一致、汇总 min/max/mean 可由原始数据重算，两个采样器的错误列表均为空。工具测试共 229 项通过，执行命令为 `uv run --offline python -m unittest discover -s tests -v`，完整输出见 `artifacts/media-telemetry-tests.log`；`doctor` 也完成。这些检查覆盖路由、输入身份、缺失环境/模型、失败/超时/中断、串行锁、输出验证、计时/RTF 公式、GPU 映射、资源统计与监控异常隔离。已理解并验证小样本 GPU 推理链路和测量流程可用；语音未做人工听辨，较大分辨率、长文本及多轮稳定性仍未评测。下一步可打开生成文件确认主观质量，再使用自己的提示词或参考音频复测。
+已逐项核对 JSONL 与 JSON samples 一致、采样数一致、汇总 min/max/mean 可由原始数据重算，两个采样器的错误列表均为空。工具测试共 229 项通过，执行命令为 `uv run --offline python -m unittest discover -s tests -v`，完整输出见 `artifacts/media-telemetry-tests.log`；`doctor` 也完成。这些检查覆盖路由、输入身份、缺失环境/模型、失败/超时/中断、串行锁、输出验证、计时/RTF 公式、GPU 映射、资源统计与监控异常隔离。当时已验证小样本 GPU 推理链路和测量流程可用；语音未做人工听辨，较大分辨率、长文本及多轮稳定性当时仍未评测。其后的小尺寸与 2K 生图结果见本节开头；长文本配音和多轮稳定性仍需另行验证。
 
 来源：[Ideogram4 固定源码](https://github.com/ideogram-oss/ideogram4/tree/990fe1c4e950bb9e9dc90e01c0ad98ba434f83c2)、[IndexTTS2 v2.0.0](https://github.com/index-tts/index-tts/tree/830f6f8f94a51fea23ab1d639027a86200075a4e)、[ModelScope snapshot API](https://github.com/modelscope/modelscope/blob/v1.40.2/modelscope/hub/snapshot_download.py)。

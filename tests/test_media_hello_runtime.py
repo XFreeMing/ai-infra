@@ -43,6 +43,27 @@ class FakeCUDA:
         return self.peak_reserved
 
 
+class FakeTensor:
+    def __init__(self, name, events, device='cuda', dtype='bfloat16'):
+        self.name, self.events = name, events
+        self.device, self.dtype = SimpleNamespace(type=device), dtype
+
+    def to(self, *, device, dtype):
+        self.events.append((self.name, device, dtype))
+        return FakeTensor(self.name, self.events, device, dtype)
+
+
+class FakeAutoencoder:
+    def __init__(self, events):
+        self.events = events
+        self.device, self.dtype = 'cuda', 'bfloat16'
+
+    def to(self, *, device, dtype):
+        self.events.append(('autoencoder', device, dtype))
+        self.device, self.dtype = device, dtype
+        return self
+
+
 class MediaHelloRuntimeTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
@@ -50,7 +71,8 @@ class MediaHelloRuntimeTests(unittest.TestCase):
         self.root = Path(temporary.name)
         self.path = self.root / 'runtime-performance.json'
         self.cuda = FakeCUDA()
-        patcher = patch.dict(sys.modules, {'torch': SimpleNamespace(cuda=self.cuda)})
+        patcher = patch.dict(sys.modules, {'torch': SimpleNamespace(cuda=self.cuda, float32='float32',
+                                                                  device=lambda value: SimpleNamespace(type=value))})
         patcher.start()
         self.addCleanup(patcher.stop)
         capture = redirect_stdout(io.StringIO())
@@ -183,13 +205,145 @@ class MediaHelloRuntimeTests(unittest.TestCase):
 
         module = SimpleNamespace(IndexTTS2=TTS)
         worker = SimpleNamespace(torch_probe=lambda app: {}, import_app=lambda source, app: module)
-        runtime.instrument_worker(worker, self.metrics)
+        runtime.instrument_worker(worker, self.metrics, decode_device='cpu')
         tts = worker.import_app(self.root, 'indextts2').IndexTTS2(device='cuda:0', use_fp16=False)
         output = self.root / 'audio.wav'
         self.assertEqual(tts.infer(text='你好', output_path=output), 123)
         self.assertEqual(output.read_text(), '你好')
         self.assertEqual(tts.kwargs, {'device': 'cuda:0', 'use_fp16': False})
         self.assertEqual(set(self.data()['phases']), {'model_load', 'generation'})
+        self.assertNotIn('decoder', self.data())
+        self.assertEqual(self.data()['subphases'], [])
+
+    def image_pipeline(self, events, decode):
+        class Pipeline:
+            def __init__(self):
+                self.dtype, self.device = 'bfloat16', SimpleNamespace(type='cuda')
+                self.latent_shift = FakeTensor('shift', events)
+                self.latent_scale = FakeTensor('scale', events)
+                self.autoencoder = FakeAutoencoder(events)
+                self.conditional_transformer = object()
+                self.unconditional_transformer = object()
+
+            def _encode_text(self, tokens):
+                return tokens
+
+            def _decode(self, z, *, grid_h, grid_w):
+                return decode(self, z, grid_h, grid_w)
+
+        return Pipeline
+
+    def test_cpu_decode_uses_proxy_cpu_tensors_and_preserves_gpu_pipeline(self):
+        events = []
+        original_pipe = None
+
+        def decode(pipe, z, height, width):
+            self.assertIsNot(pipe, original_pipe)
+            self.assertEqual(self.data()['active_subphase'], 'vae_decode')
+            self.assertEqual(self.data()['decoder']['effective_device'], 'cpu')
+            self.assertEqual((pipe.device.type, pipe.dtype), ('cpu', 'float32'))
+            for tensor in (z, pipe.latent_shift, pipe.latent_scale):
+                self.assertEqual((tensor.device.type, tensor.dtype), ('cpu', 'float32'))
+            self.assertEqual((pipe.autoencoder.device, pipe.autoencoder.dtype), ('cpu', 'float32'))
+            self.assertIs(pipe.conditional_transformer, original_pipe.conditional_transformer)
+            self.assertIs(pipe.unconditional_transformer, original_pipe.unconditional_transformer)
+            self.cuda.peak_allocated = 456
+            return ['cpu-image', height, width]
+
+        cls = self.image_pipeline(events, decode)
+        runtime.instrument_image_subphases(cls, self.metrics, 'cpu')
+        original_pipe = cls()
+        z = FakeTensor('latent', events)
+
+        def generate():
+            self.assertEqual(original_pipe._encode_text('caption'), 'caption')
+            return original_pipe._decode(z, grid_h=12, grid_w=8)
+
+        self.assertEqual(self.metrics.call('generation', generate), ['cpu-image', 12, 8])
+        self.assertEqual((original_pipe.device.type, original_pipe.dtype), ('cuda', 'bfloat16'))
+        self.assertEqual(original_pipe.latent_shift.device.type, 'cuda')
+        self.assertEqual(z.device.type, 'cuda')
+        self.assertEqual(events, [('latent', 'cpu', 'float32'), ('shift', 'cpu', 'float32'),
+                                  ('scale', 'cpu', 'float32'), ('autoencoder', 'cpu', 'float32')])
+        self.assertEqual(self.cuda.events, ['sync', 'reset', 'sync', 'sync'])
+        data = self.data()
+        self.assertEqual(data['phases']['generation']['torch_peak_allocated_bytes'], 456)
+        self.assertEqual([s['name'] for s in data['subphases']], ['text_encoding', 'decode_gpu_sync', 'vae_decode'])
+        self.assertTrue(all(s['status'] == 'succeeded' for s in data['subphases']))
+        self.assertTrue(data['subphases'][-1]['request']['prior_gpu_work_synchronized'])
+        self.assertIsNone(data['active_subphase'])
+
+    def test_cpu_input_decode_does_not_touch_gpu(self):
+        events = []
+        cls = self.image_pipeline(events, lambda pipe, z, height, width: ['cpu-image'])
+        runtime.instrument_image_subphases(cls, self.metrics, 'cpu')
+        with patch.object(self.cuda, 'synchronize', side_effect=AssertionError('GPU forbidden')):
+            result = cls()._decode(FakeTensor('latent', events, device='cpu'), grid_h=2, grid_w=2)
+        self.assertEqual(result, ['cpu-image'])
+        self.assertEqual([s['name'] for s in self.data()['subphases']], ['vae_decode'])
+        self.assertFalse(self.data()['subphases'][0]['request']['prior_gpu_work_synchronized'])
+
+    def test_gpu_failure_before_cpu_decode_never_calls_or_moves_decoder(self):
+        events = []
+        cls = self.image_pipeline(events, lambda *args: self.fail('decoder must not run'))
+        runtime.instrument_image_subphases(cls, self.metrics, 'cpu')
+        pipe = cls()
+        with patch.object(self.cuda, 'synchronize', side_effect=RuntimeError('prior GPU failure')):
+            with self.assertRaisesRegex(RuntimeError, 'prior GPU failure'):
+                pipe._decode(FakeTensor('latent', events), grid_h=2, grid_w=2)
+        self.assertEqual(events, [])
+        self.assertEqual(pipe.autoencoder.device, 'cuda')
+        self.assertIsNone(self.data()['decoder']['effective_device'])
+        self.assertEqual(self.data()['subphases'][0]['status'], 'failed')
+        self.assertEqual(self.data()['errors'][0]['phase'], 'decode_gpu_sync')
+        self.assertIsNone(self.data()['active_subphase'])
+
+    def test_cpu_decoder_failure_propagates_and_does_not_restore_gpu(self):
+        events = []
+
+        def fail(*args):
+            raise ValueError('CPU decoder failed')
+
+        cls = self.image_pipeline(events, fail)
+        runtime.instrument_image_subphases(cls, self.metrics, 'cpu')
+        pipe = cls()
+        with self.assertRaisesRegex(ValueError, 'CPU decoder failed'):
+            self.metrics.call('generation', pipe._decode, FakeTensor('latent', events), grid_h=2, grid_w=2)
+        self.assertEqual(pipe.autoencoder.device, 'cpu')
+        self.assertTrue(all(device == 'cpu' for _, device, _ in events))
+        self.assertEqual(self.data()['subphases'][-1]['status'], 'failed')
+        self.assertEqual(self.data()['errors'][0]['phase'], 'vae_decode')
+        self.assertEqual(self.data()['phases']['generation']['status'], 'failed')
+        self.assertFalse(self.data()['phases']['generation']['duration_complete'])
+
+    def test_cpu_decode_missing_hook_fails_without_gpu_fallback(self):
+        with self.assertRaisesRegex(RuntimeError, '不能回退到 GPU'):
+            runtime.instrument_image_subphases(type('UnknownPipeline', (), {}), self.metrics, 'cpu')
+
+    def test_gpu_decode_preserves_original_device_and_does_not_move_tensors(self):
+        events, seen = [], []
+        cls = self.image_pipeline(events, lambda pipe, z, height, width: seen.append((pipe, z)) or ['gpu-image'])
+        runtime.instrument_image_subphases(cls, self.metrics, 'gpu')
+        pipe, z = cls(), FakeTensor('latent', events)
+        self.assertEqual(pipe._decode(z, grid_h=2, grid_w=2), ['gpu-image'])
+        self.assertEqual(seen, [(pipe, z)])
+        self.assertEqual(events, [])
+        self.assertEqual(self.data()['decoder']['effective_device'], 'gpu')
+
+    def test_text_encoding_failure_is_preserved_before_decode(self):
+        cls = self.image_pipeline([], lambda *args: self.fail('decoder must not run'))
+
+        def fail(self, tokens):
+            raise RuntimeError('text encoder failed')
+
+        cls._encode_text = fail
+        runtime.instrument_image_subphases(cls, self.metrics, 'cpu')
+        with self.assertRaisesRegex(RuntimeError, 'text encoder failed'):
+            self.metrics.call('generation', cls()._encode_text, 'caption')
+        self.assertEqual([s['name'] for s in self.data()['subphases']], ['text_encoding'])
+        self.assertEqual(self.data()['subphases'][0]['status'], 'failed')
+        self.assertEqual(self.data()['errors'][0]['phase'], 'text_encoding')
+        self.assertIsNone(self.data()['decoder']['effective_device'])
 
     def test_main_loads_original_worker_and_restores_sigterm_handler(self):
         worker = SimpleNamespace(torch_probe=lambda app: {}, import_app=lambda source, app: None)
@@ -202,11 +356,14 @@ class MediaHelloRuntimeTests(unittest.TestCase):
 
         worker.main = worker_main
         previous_handler = signal.getsignal(signal.SIGTERM)
-        with patch.object(runtime, 'load_worker', return_value=worker) as load:
-            result = runtime.main(['--worker', str(self.root / 'worker.py'), '--metrics', str(self.path), '--', 'run', '--app', 'ideogram4'])
+        with patch.object(runtime, 'load_worker', return_value=worker) as load, \
+                patch.object(runtime, 'instrument_worker', wraps=runtime.instrument_worker) as instrument:
+            result = runtime.main(['--worker', str(self.root / 'worker.py'), '--metrics', str(self.path),
+                                   '--decode-device', 'cpu', '--', 'run', '--app', 'ideogram4'])
         self.assertEqual(result, 0)
         load.assert_called_once_with(self.root / 'worker.py')
         self.assertEqual(seen, [['run', '--app', 'ideogram4']])
+        self.assertEqual(instrument.call_args.kwargs, {'decode_device': 'cpu'})
         self.assertEqual(signal.getsignal(signal.SIGTERM), previous_handler)
         self.assertEqual(self.data()['status'], 'succeeded')
 

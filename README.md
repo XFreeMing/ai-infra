@@ -81,7 +81,7 @@ uv run 300 init Indextts2
 # 模型由用户自行执行下载；300 默认 /home/ops396/models
 uv run download Ideogram4
 uv run download Indextts2
-uv run 300 hello Ideogram4  # 生成并校验 256×256 测试图
+uv run 300 hello Ideogram4 --dry-run  # 查看 1344×2016 海报计划；当前 2K GPU 路径受保护
 uv run 300 hello Indextts2  # 生成并校验一句短中文配音
 uv run 300 Ideogram4   # 本地 WebUI 7861
 uv run 300 Indextts2   # 本地 WebUI 7860
@@ -89,7 +89,7 @@ uv run 300 Indextts2   # 本地 WebUI 7860
 uv run download Ideogram4 --machine 700
 ```
 
-这两个 init 不下载或加载模型权重；download 使用固定 ModelScope 版本和必要辅助文件，展示进度并校验 SHA256；启动只读取本地模型。命令大小写不敏感。`hello` 使用小样本实际生成并校验输出，每 2 秒显示 CPU/GPU/内存等资源占用，结束汇总 min/max/mean、加载/生成耗时和吞吐/RTF；可用 `--sample-interval 1` 调整间隔。验证与性能 JSON 保存在 `artifacts/hello/300/`；详细结果见 [生图/配音说明](docs/media.md#验证状态)。
+这两个 init 不下载或加载模型权重；download 使用固定 ModelScope 版本和必要辅助文件，展示进度并校验 SHA256；启动只读取本地模型。命令大小写不敏感。`hello` 生成图片或短配音并校验输出，每 2 秒显示 CPU/GPU/内存等资源占用，结束汇总 min/max/mean、加载/生成耗时和吞吐/RTF；可用 `--sample-interval 1` 调整间隔。Ideogram4 配置预算 3600 秒，IndexTTS2 为 900 秒，`--timeout` 可覆盖。**此前 AI 300 的 2K GPU 解码路径三次导致 GPU reset 和桌面崩溃；高效 attention 降低了观测到的内存峰值，未证明运行稳定。** 默认大图/WebUI/并发 KFD 启动会被拦截；原尺寸与提示词保留，`--width 384 --height 576 --dry-run` 可查看小尺寸恢复计划。详情及实验重试选项见 [GPU 卡死调查](experiments/media-rocm-attention/gpu-freeze.md)。`hello Ideogram4` 现默认 CPU VAE 解码旁路，GPU 仍负责编码和采样；2026-10-16 用户的 384×576 和 1344×2016 混合 GPU/CPU 生成各通过一次：总耗时分别为 174.43 秒、595.10 秒，实际生成分别为 40.10 秒、482.23 秒。2K 结果仍有主标题乱码，单次成功不证明历史故障已修复或连续运行稳定，2K 保护保留。[产品实测报告](artifacts/reports/ai300-media-20261016/deliverables/AI300生图与配音实测报告.html)附输入、成品和性能指标；[最新 2K 复核](artifacts/reports/ai300-media-20261016/latest-2k-audit/summary.json)保存运行身份和日志结论。常规 WebUI 没有应用该 hello 专用旁路。已有环境无需为这些改动重新 init。验证与性能 JSON 保存在 `artifacts/hello/300/`；详细结果见 [生图/配音说明](docs/media.md#验证状态)。
 
 ## 当前研究
 
