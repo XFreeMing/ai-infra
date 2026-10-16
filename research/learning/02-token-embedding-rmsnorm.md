@@ -2,6 +2,8 @@
 
 学习日期：2026-10-13。通过 Mac 上的 TinyStories 15M 和 llama2.c，把后端开发熟悉的数组、索引、文件布局连接到模型推理。本文记录本次问答与已核对的数据，理解程度仍需要逐步调试和复述来确认。
 
+后续学习见 [2026-10-16 的 QKV 个人复盘](03-qkv-personal-review.md)：根据新的追问，先补齐矩阵乘法、数据身份与 attention 的完整去向，再继续本篇的 RMSNorm 调试。
+
 源码基准为 llama2.c 提交 `350e04fe35433e6d2941dce5a1f53308f87058eb` 的 [run.c](https://github.com/karpathy/llama2.c/blob/350e04fe35433e6d2941dce5a1f53308f87058eb/run.c)。模型与 tokenizer 的下载来源、版本、SHA256 见 [model.lock.json](../../experiments/tiny-inference/model.lock.json)，运行入口见 [小模型动手课](../../experiments/tiny-inference/README.md)。以下数值观察来自本机文件读取，不是 PGX GB10 的性能结果。
 
 ## dim 是向量有多少个数
