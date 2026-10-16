@@ -4,7 +4,7 @@
 
 ## 学习方式
 
-当前先读 [QKV 个人学习复盘与源码调试路线](03-qkv-personal-review.md)：从实际提问定位数组身份、矩阵形状和计算去向的缺口，用同一组数字走完 Q/K/V、softmax、Wo 和残差，再分次回到调试器验证。
+当前先读 [QKV 学习精简版](03-qkv-short.md)：认清参数与运行结果，串起 Q/K/V、Wo 和残差。需要完整算例和断点表时，再查[详细版](03-qkv-personal-review.md)。
 
 需要运行程序时，使用 [Mac 小模型调试练习](../../experiments/tiny-inference/README.md)：TinyStories 15M 约 61 MB，使用 llama2.c 在 CPU 上真实运行与下断点。每次只做 10–20 分钟，先看到 token、分数和生成循环，再把观察对应到 ds4。源码也用 submodule 固定，模型留在 Git 外。
 
@@ -45,6 +45,7 @@
 - [第 1 课：一次请求如何变成模型输出](01-request-to-tokens.md)：导读与源码证据已准备；学习者理解情况等待练习反馈。
 - [本次学习：从 token 编号到向量计算和 RMSNorm](02-token-embedding-rmsnorm.md)：记录词表与 Embedding、逐层计算、Q K V、KV cache，以及预先归一化的待验证想法；下一步逐行观察 `rmsnorm`。
 - [QKV 个人学习复盘](03-qkv-personal-review.md)：2026-10-16 根据后续问答重新安排学习顺序，先补齐数据来源、矩阵运算和结果去向；下一步手算 Wo，再映射到 `matmul`。
+- [QKV 学习精简版](03-qkv-short.md)：保留核心关系、矩阵形状和下一步练习，作为优先阅读入口。
 - 其他专题按问题逐步展开，未经过练习验收的内容不标记为已掌握。
 - [ds4 调研](../studies/ds4-inference/README.md)提供后续材料；第一课不要求先读完整份调研。
 - [R0 核查](../studies/ds4-inference/R0.md)是静态与运行验证材料，不能替代基础概念学习。
