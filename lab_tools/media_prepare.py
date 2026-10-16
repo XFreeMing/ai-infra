@@ -13,7 +13,7 @@ import time
 import tomllib
 
 from lab_tools.cli import WorkflowError, _git, doctor
-from lab_tools.media_models import APPS, TORCH_VERSION
+from lab_tools.media_models import APPS, TORCH_VERSION, runtime_environment
 from lab_tools.media_wheels import MIRROR, wheel_requirements, wheel_sources
 from lab_tools.machines import require_host, require_rocm, rocm_home, rocm_report
 from lab_tools.native_prepare import default_package_index, initialization_lock
@@ -123,7 +123,8 @@ def plan_media(root: Path, app: str, directory: Path, args) -> dict:
                             'NINJA_STATUS': '[%f/%t %p | %e s] ',
                             'HF_HUB_OFFLINE': '1', 'TRANSFORMERS_OFFLINE': '1', 'PYTHONNOUSERSITE': '1',
                             'GIT_LFS_SKIP_SMUDGE': '1',
-                            'GRADIO_ANALYTICS_ENABLED': 'False', 'NLTK_DATA': str(directory / 'nltk_data')}}
+                            'GRADIO_ANALYTICS_ENABLED': 'False', 'NLTK_DATA': str(directory / 'nltk_data'),
+                            **runtime_environment(app)}}
 
 
 def prepare_media(root: Path, app: str, args) -> tuple[Path, int]:

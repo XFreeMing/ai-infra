@@ -13,7 +13,158 @@ from lab_tools import prepare
 from lab_tools.init_progress import TerminalText
 
 
+class RecordingObserver:
+    def __init__(self, *, failing_action=None, print_samples=False):
+        self.failing_action = failing_action
+        self.print_samples = print_samples
+        self.calls = []
+        self.pid = None
+
+    def _call(self, action):
+        self.calls.append(action)
+        if action == self.failing_action:
+            raise RuntimeError('monitor fixture failure')
+
+    def start(self, pid):
+        self._call('start')
+        self.pid = pid
+
+    def poll(self):
+        self._call('poll')
+        if self.print_samples:
+            print('resource sample', flush=True)
+        return self.print_samples
+
+    def finish(self):
+        self._call('finish')
+        return {'samples': self.calls.count('poll'), 'pid': self.pid}
+
+
 class InitProgressTests(unittest.TestCase):
+    def test_observer_lifecycle_summary_and_live_updates_replace_console_heartbeats(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            observer = RecordingObserver(print_samples=True)
+            recorder = prepare.Recorder(root, root, {'commands': []})
+            with patch.object(prepare, 'OUTPUT_POLL_SECONDS', .01), \
+                 patch.object(prepare, 'PROGRESS_INTERVAL_SECONDS', .04), redirect_stdout(io.StringIO()) as terminal:
+                result = recorder.command('generate', [sys.executable, '-c', 'import time; time.sleep(.15)'],
+                                          root, 5, observer=observer)
+            self.assertEqual((result['status'], result['exit_code']), ('succeeded', 0))
+            self.assertEqual(observer.calls[0], 'start')
+            self.assertEqual(observer.calls[-1], 'finish')
+            self.assertEqual(observer.calls.count('finish'), 1)
+            self.assertGreater(result['resource_summary']['samples'], 1)
+            self.assertEqual(result['resource_summary']['pid'], result['child_pid'])
+            saved = json.loads((root / 'manifest.json').read_text())['commands'][0]
+            self.assertEqual(saved['resource_summary'], result['resource_summary'])
+            self.assertIn('resource sample', terminal.getvalue())
+            self.assertNotIn('\n进行中：', terminal.getvalue())
+            self.assertIn('进行中：', (root / 'progress.log').read_text())
+
+    def test_observer_failures_do_not_change_command_success_and_report_once(self):
+        for action in ('start', 'poll', 'finish'):
+            with self.subTest(action=action), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                observer = RecordingObserver(failing_action=action)
+                recorder = prepare.Recorder(root, root, {'commands': []})
+                with patch.object(prepare, 'OUTPUT_POLL_SECONDS', .01), \
+                     patch.object(prepare, 'PROGRESS_INTERVAL_SECONDS', .04), redirect_stdout(io.StringIO()) as terminal:
+                    result = recorder.command('generate', [sys.executable, '-c', 'import time; time.sleep(.15)'],
+                                              root, 5, observer=observer)
+                self.assertEqual((result['status'], result['exit_code']), ('succeeded', 0))
+                self.assertEqual(observer.calls.count(action), 1)
+                self.assertEqual(observer.calls.count('finish'), 1)
+                self.assertEqual(len(result['resource_monitor_errors']), 1)
+                self.assertEqual(result['resource_monitor_errors'][0]['action'], action)
+                self.assertEqual(terminal.getvalue().count('monitor fixture failure'), 1)
+                self.assertIn('\n进行中：', terminal.getvalue())
+                if action == 'start':
+                    self.assertNotIn('poll', observer.calls)
+                if action != 'finish':
+                    self.assertIn('resource_summary', result)
+
+    def test_bad_observer_summary_does_not_break_manifest_or_exit_status(self):
+        for summary in (None, {'value': object()}, {'value': float('nan')}):
+            with self.subTest(summary=summary), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                recorder = prepare.Recorder(root, root, {'commands': []})
+                observer = RecordingObserver()
+                with patch.object(observer, 'finish', return_value=summary), redirect_stdout(io.StringIO()):
+                    result = recorder.command('generate', [sys.executable, '-c', 'pass'], root, 5, observer=observer)
+                self.assertEqual(result['exit_code'], 0)
+                self.assertNotIn('resource_summary', result)
+                self.assertEqual(result['resource_monitor_errors'][0]['action'], 'finish')
+                self.assertEqual(json.loads((root / 'manifest.json').read_text())['commands'][0]['exit_code'], 0)
+
+    def test_observer_finishes_without_start_when_process_cannot_launch(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            observer = RecordingObserver()
+            recorder = prepare.Recorder(root, root, {'commands': []})
+            with redirect_stdout(io.StringIO()):
+                result = recorder.command('generate', [str(root / 'missing-executable')], root, 5, observer=observer)
+            self.assertEqual((result['status'], result['exit_code']), ('launch_error', 127))
+            self.assertEqual(observer.calls, ['finish'])
+            self.assertEqual(result['resource_summary'], {'samples': 0, 'pid': None})
+
+    @unittest.skipUnless(os.name == 'posix', 'POSIX process cleanup')
+    def test_observer_finishes_after_timeout_kills_child(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            observer = RecordingObserver()
+            recorder = prepare.Recorder(root, root, {'commands': []})
+            original_finish = observer.finish
+
+            def finish():
+                with self.assertRaises(ProcessLookupError):
+                    os.kill(observer.pid, 0)
+                return original_finish()
+
+            with patch.object(observer, 'finish', side_effect=finish), \
+                 patch.object(prepare, 'OUTPUT_POLL_SECONDS', .01), redirect_stdout(io.StringIO()):
+                result = recorder.command('generate', [sys.executable, '-c', 'import time; time.sleep(10)'],
+                                          root, .1, observer=observer)
+            self.assertEqual((result['status'], result['exit_code']), ('timed_out', 124))
+            self.assertEqual(observer.calls[-1], 'finish')
+            self.assertEqual(observer.calls.count('finish'), 1)
+            self.assertGreater(result['resource_summary']['samples'], 0)
+            self.assertNotIn('resource_monitor_errors', result)
+
+    @unittest.skipUnless(os.name == 'posix', 'POSIX process cleanup')
+    def test_observer_finishes_after_keyboard_interrupt_kills_child(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            observer = RecordingObserver()
+            recorder = prepare.Recorder(root, root, {'commands': []})
+            original_finish = observer.finish
+
+            def finish():
+                with self.assertRaises(ProcessLookupError):
+                    os.kill(observer.pid, 0)
+                return original_finish()
+
+            class InterruptOutput(io.StringIO):
+                interrupted = False
+
+                def write(self, text):
+                    result = super().write(text)
+                    if text == 'interrupt marker\n' and not self.interrupted:
+                        self.interrupted = True
+                        raise KeyboardInterrupt
+                    return result
+
+            with patch.object(observer, 'finish', side_effect=finish), \
+                 redirect_stdout(InterruptOutput()), self.assertRaises(KeyboardInterrupt):
+                recorder.command('generate', [sys.executable, '-c',
+                    'import time; print("interrupt marker", flush=True); time.sleep(10)'], root, 5, observer=observer)
+            result = json.loads((root / 'manifest.json').read_text())['commands'][0]
+            self.assertEqual((result['status'], result['exit_code']), ('interrupted', 130))
+            self.assertEqual(observer.calls[-1], 'finish')
+            self.assertEqual(observer.calls.count('finish'), 1)
+            self.assertIn('resource_summary', result)
+            self.assertNotIn('resource_monitor_errors', result)
+
     def test_split_escape_sequences_do_not_corrupt_progress_text(self):
         display = TerminalText()
         text = display.feed('\x1b[3') + display.feed('2mtorch 25%\x1b[0m\r')

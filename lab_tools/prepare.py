@@ -175,7 +175,13 @@ class Recorder:
             stream.write(datetime.now(timezone.utc).isoformat() + ' ' + text + '\n')
 
     def command(self, label: str, argv: list[str], cwd: Path, timeout: float | None = None,
-                env: dict | None = None) -> dict:
+                env: dict | None = None, *, observer=None) -> dict:
+        """Run a command, optionally sampling resources through a passive observer.
+
+        Observers implement start(pid), poll() and finish(). poll() returns whether
+        it printed an update; finish() returns a JSON-serializable summary dict.
+        A failed observer action is disabled without changing the command result.
+        """
         index = len(self.manifest['commands'])
         overrides = {'PYTHONUNBUFFERED': '1', 'UV_NO_PROGRESS': 'false', 'PIP_PROGRESS_BAR': 'on',
                      'NINJA_STATUS': '[%f/%t %p | %e s] ', **(env or {})}
@@ -206,6 +212,28 @@ class Recorder:
         decoder = codecs.getincrementaldecoder('utf-8')(errors='replace')
         terminal = TerminalText()
         interactive = getattr(sys.stdout, 'isatty', lambda: False)()
+        observer_failed = set()
+
+        def observe(action: str, *args):
+            if observer is None or action in observer_failed:
+                return False, None
+            try:
+                result = getattr(observer, action)(*args)
+                if action == 'finish':
+                    if not isinstance(result, dict):
+                        raise TypeError('finish() must return a summary dict')
+                    # Reject bad monitor output here, before manifest.save(), so
+                    # telemetry cannot turn a successful generation into failure.
+                    json.dumps(result, allow_nan=False)
+                return True, result
+            except Exception as error:
+                observer_failed.add(action)
+                record.setdefault('resource_monitor_errors', []).append({
+                    'action': action, 'type': type(error).__name__, 'error': str(error)})
+                message = f'资源监控 {action} 失败，继续执行 {label}：{type(error).__name__}: {error}'
+                print(message, flush=True)
+                self.progress(message)
+                return False, None
 
         def forward_output(reader) -> bool:
             # Keep the raw log unchanged, even for split UTF-8 / carriage-return
@@ -241,17 +269,23 @@ class Recorder:
                 self.save()
                 process = subprocess.Popen(argv, cwd=cwd, stdout=output.stdout, stderr=subprocess.STDOUT,
                                            start_new_session=True, env=child_env)
-                output.spawned()
-                record['child_pid'] = process.pid
-                self.save()
                 try:
+                    output.spawned()
+                    record['child_pid'] = process.pid
+                    observer_started, _ = observe('start', process.pid)
+                    self.save()
                     deadline = started + max(0.01, timeout) if timeout is not None else None
                     next_progress = started + PROGRESS_INTERVAL_SECONDS
                     last_output = started
+                    last_monitor_output = started
                     while True:
                         output.drain()
                         if forward_output(reader):
                             last_output = time.monotonic()
+                        if observer_started:
+                            sampled, printed = observe('poll')
+                            if sampled and printed:
+                                last_monitor_output = time.monotonic()
                         now = time.monotonic()
                         code = process.poll()
                         if code is not None:
@@ -267,9 +301,10 @@ class Recorder:
                                        f'{now - last_output:.1f} 秒无新增输出｜{budget}')
                             if terminal.latest:
                                 message += '\n最近输出：' + terminal.latest
-                            # Native bars/logs already show activity. Only add a console
-                            # heartbeat after a full interval with no child output.
-                            if now - last_output >= PROGRESS_INTERVAL_SECONDS:
+                            # Child logs and monitor updates already show activity.
+                            # Keep the progress log heartbeat regardless, and resume
+                            # console heartbeats if the monitor becomes unavailable.
+                            if now - max(last_output, last_monitor_output) >= PROGRESS_INTERVAL_SECONDS:
                                 print('\n' + message, flush=True)
                             self.progress(message)
                             record.update(last_output=terminal.latest, output_bytes=reader.tell(),
@@ -299,6 +334,9 @@ class Recorder:
         except OSError as error:
             record.update(exit_code=127, status='launch_error', error=str(error))
         finally:
+            finished, summary = observe('finish')
+            if finished:
+                record['resource_summary'] = summary
             record['duration_seconds'] = round(time.monotonic() - started, 3)
             record['finished_at'] = datetime.now(timezone.utc).isoformat()
             record['last_output'] = terminal.latest

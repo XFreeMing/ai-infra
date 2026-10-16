@@ -10,7 +10,8 @@ import subprocess
 import tempfile
 
 from lab_tools.cli import WorkflowError, _git
-from lab_tools.media_models import APPS, TORCH_VERSION, files_for, model_dir, verify_local
+from lab_tools.media_gpu_guard import assess_gpu_launch, image_dimension, require_gpu_launch
+from lab_tools.media_models import APPS, TORCH_VERSION, files_for, model_dir, runtime_environment, verify_local
 from lab_tools.machines import require_host
 from lab_tools.prepare import positive_int, sha256
 
@@ -54,8 +55,10 @@ def launch_media(root: Path, app: str, argv: list[str]) -> int:
     prompt.add_argument('--prompt', help='单次生成：Ideogram4 为 JSON caption，Indextts2 为文本；省略则启动 WebUI。')
     prompt.add_argument('--prompt-json', type=Path, help='Ideogram4 的 JSON caption 文件。')
     parser.add_argument('--reference', type=Path, help='Indextts2 单次合成所用参考 WAV。')
-    parser.add_argument('--height', type=positive_int, default=512)
-    parser.add_argument('--width', type=positive_int, default=512)
+    parser.add_argument('--height', type=image_dimension)
+    parser.add_argument('--width', type=image_dimension)
+    parser.add_argument('--experimental-gpu', action='store_true',
+                        help='仅隔离实验：显式越过 Ideogram4 已知 GPU 故障/并发保护，不能修复故障。')
     parser.add_argument('--seed', type=int, default=0)
     parser.add_argument('--sampler', default='V4_TURBO_12')
     parser.add_argument('--output-dir', type=Path, default=root / 'artifacts/media' / app)
@@ -68,6 +71,10 @@ def launch_media(root: Path, app: str, argv: list[str]) -> int:
         raise WorkflowError('Indextts2 使用 --prompt 文本，不能使用 --prompt-json。')
     if app == 'ideogram4' and args.reference:
         raise WorkflowError('--reference 用于 Indextts2。')
+    if app == 'indextts2' and (args.width is not None or args.height is not None):
+        raise WorkflowError('--width / --height 只用于 Ideogram4，不能用于 Indextts2。')
+    args.width = args.width if args.width is not None else 512
+    args.height = args.height if args.height is not None else 512
     prompt_text = (root / args.prompt_json).read_text(encoding='utf-8') if args.prompt_json else args.prompt
     directory = (root / (args.model_dir or model_dir(app, '300', args.models_dir))).resolve()
     unresolved = None
@@ -92,10 +99,13 @@ def launch_media(root: Path, app: str, argv: list[str]) -> int:
         command += ['--reference', str((root / args.reference).resolve())]
     env = {**(manifest or {}).get('environment', {}), 'HIP_VISIBLE_DEVICES': args.devices,
            'HF_HUB_OFFLINE': '1', 'TRANSFORMERS_OFFLINE': '1', 'GRADIO_ANALYTICS_ENABLED': 'False',
-           'PYTHONNOUSERSITE': '1', 'PYTHONPATH': '', 'AI_INFRA_MEDIA_MODEL_DIR': str(directory)}
+           'PYTHONNOUSERSITE': '1', 'PYTHONPATH': '', 'AI_INFRA_MEDIA_MODEL_DIR': str(directory),
+           **runtime_environment(app)}
     plan = {'machine_id': '300', 'app': app, 'argv': command, 'environment': env, 'runtime_blocker': unresolved,
             'model_dir': str(directory), 'preparation_manifest': str(manifest_path) if manifest_path else None,
             'model_download_requested': False, 'gpu_inference_validated': False,
+            'gpu_guard': assess_gpu_launch(app, experimental=args.experimental_gpu,
+                webui=prompt_text is None, width=args.width, height=args.height),
             'missing_model_files': [f['path'] for f in files_for(app) if not (directory / f['path']).is_file()]}
     if args.dry_run:
         print(json.dumps(plan, ensure_ascii=False, indent=2))
@@ -105,15 +115,27 @@ def launch_media(root: Path, app: str, argv: list[str]) -> int:
         return subprocess.run([str(python), '-I', str(worker), '--help'], cwd=root, env={**os.environ, **env}, timeout=30).returncode
     if args.reference and not (root / args.reference).is_file():
         raise WorkflowError('参考音频文件不存在。')
-    identity = verify_local(app, directory)
     output = root / 'artifacts/servers/300'
     output.mkdir(parents=True, exist_ok=True)
     receipt_dir = Path(tempfile.mkdtemp(prefix=datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ-') + app + '-', dir=output))
-    receipt = {**plan, 'models': identity, 'parent_commit': _git(root, 'rev-parse', 'HEAD'),
-               'parent_dirty': bool(_git(root, 'status', '--porcelain')), 'status': 'launch_requested',
+    receipt = {**plan, 'parent_commit': _git(root, 'rev-parse', 'HEAD'),
+               'parent_dirty': bool(_git(root, 'status', '--porcelain')), 'status': 'preparing',
                'launch_id': receipt_dir.name, 'preparation_manifest_sha256': sha256(manifest_path)}
-    (receipt_dir / 'launch.json').write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-    print(f'启动记录：{receipt_dir / "launch.json"}', flush=True)
+    receipt_path = receipt_dir / 'launch.json'
+    try:
+        if receipt['gpu_guard']['status'] == 'blocked':
+            require_gpu_launch(receipt['gpu_guard'])
+        receipt['models'] = verify_local(app, directory)
+        receipt['gpu_guard'] = assess_gpu_launch(app, experimental=args.experimental_gpu,
+            webui=prompt_text is None, width=args.width, height=args.height)
+        require_gpu_launch(receipt['gpu_guard'])
+        receipt['status'] = 'launch_requested'
+    except (WorkflowError, OSError, ValueError) as error:
+        receipt.update(status='blocked' if receipt['gpu_guard']['status'] == 'blocked' else 'failed', error=str(error))
+        raise
+    finally:
+        receipt_path.write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+        print(f'启动记录：{receipt_path}', flush=True)
     os.chdir(root)
     os.execve(python, command, {**os.environ, **env, 'AI_INFRA_LAUNCH_MANIFEST': str(receipt_dir / 'launch.json')})
     return 0
