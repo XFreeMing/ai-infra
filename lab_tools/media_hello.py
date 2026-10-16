@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import json
+import math
 from pathlib import Path
 import shutil
 import tempfile
@@ -12,6 +13,8 @@ import time
 from lab_tools.cli import WorkflowError, _git
 from lab_tools.media_launcher import resolve_runtime
 from lab_tools.media_models import APPS, app_name, model_dir, verify_local
+from lab_tools.media_performance import write_performance
+from lab_tools.media_resources import ResourceMonitor
 from lab_tools.native_prepare import initialization_lock
 from lab_tools.prepare import Recorder, positive_int, sha256
 
@@ -25,6 +28,13 @@ CAPTION = {
                           'color_palette': ['#E53935', '#1565C0']},
     'compositional_deconstruction': {'background': 'A calm blue lake.', 'elements': []},
 }
+
+
+def sample_interval(value: str) -> float:
+    seconds = float(value)
+    if not math.isfinite(seconds) or not 0.2 <= seconds <= 60:
+        raise argparse.ArgumentTypeError('采样间隔必须在 0.2–60 秒之间。')
+    return seconds
 
 
 def plan_hello(root: Path, app: str, args, directory: Path) -> dict:
@@ -52,10 +62,15 @@ def plan_hello(root: Path, app: str, args, directory: Path) -> dict:
         command += ['--height', '256', '--width', '256', '--seed', '0', '--sampler', 'V4_TURBO_12']
     else:
         command += ['--reference', str(directory / 'input/reference.wav')]
+    worker_argv = command
+    wrapper = directory / 'media_hello_runtime.py'
+    command = [python, '-I', str(wrapper), '--worker', worker,
+               '--metrics', str(directory / 'runtime-performance.json'), '--', *worker_argv[3:]]
     env = {**(runtime or {}).get('environment', {}), 'HIP_VISIBLE_DEVICES': args.devices,
            'HF_HUB_OFFLINE': '1', 'TRANSFORMERS_OFFLINE': '1', 'GRADIO_ANALYTICS_ENABLED': 'False',
            'PYTHONNOUSERSITE': '1', 'PYTHONPATH': '', 'AI_INFRA_MEDIA_MODEL_DIR': str(models)}
-    return {'app': app, 'machine_id': '300', 'argv': command, 'python': python, 'environment': env,
+    return {'app': app, 'machine_id': '300', 'argv': command, 'worker_argv': worker_argv,
+            'python': python, 'environment': env, 'sample_interval_seconds': args.sample_interval,
             'runtime_blocker': unresolved, 'preparation_manifest': str(path) if path else None,
             'model_dir': str(models), 'reference': str(reference) if app == 'indextts2' else None,
             'output_dir': str(output), 'timeout_seconds': args.timeout,
@@ -102,6 +117,14 @@ def run_hello(root: Path, app: str, args) -> int:
             checker = directory / 'check_output.py'
             shutil.copyfile(Path(__file__).with_name('media_hello_check.py'), checker)
             manifest['checker_sha256'] = sha256(checker)
+            wrapper = directory / 'media_hello_runtime.py'
+            shutil.copyfile(Path(__file__).with_name('media_hello_runtime.py'), wrapper)
+            manifest['runtime_observer_sha256'] = sha256(wrapper)
+            manifest['measurement_sources'] = {}
+            for name in ('media_resources.py', 'media_performance.py'):
+                snapshot = directory / name
+                shutil.copyfile(Path(__file__).with_name(name), snapshot)
+                manifest['measurement_sources'][name] = sha256(snapshot)
             env = {**plan['environment'], 'AI_INFRA_LAUNCH_MANIFEST': str(directory / 'manifest.json')}
             if app == 'indextts2':
                 reference = Path(plan['reference'])
@@ -117,7 +140,8 @@ def run_hello(root: Path, app: str, args) -> int:
                 manifest['reference_audio'] = json.loads((directory / 'reference.json').read_text())
             manifest['status'] = 'running'
             recorder.save()
-            recorder.require('generate', plan['argv'], root, remaining(), env)
+            monitor = ResourceMonitor(directory, interval=args.sample_interval, devices=args.devices)
+            recorder.require('generate', plan['argv'], root, remaining(), env, observer=monitor)
             recorder.require('validate-output', [plan['python'], '-I', str(checker), '--app', app,
                              '--output', plan['output_dir'], '--result', str(directory / 'result.json')],
                              root, remaining(), env)
@@ -139,7 +163,7 @@ def run_hello(root: Path, app: str, args) -> int:
         return 130
     except (WorkflowError, OSError, ValueError) as error:
         last = manifest['commands'][-1] if manifest['commands'] else {}
-        interrupted = last.get('status') == 'interrupted' or last.get('exit_code') in (130, -2)
+        interrupted = last.get('status') == 'interrupted' or last.get('exit_code') in (130, -2, 143, -15)
         timed_out = (isinstance(error, TimeoutError) or last.get('status') == 'timed_out' or
                      time.monotonic() - started >= args.timeout)
         manifest.update(status='interrupted' if interrupted else 'timed_out' if timed_out else 'failed', error=str(error))
@@ -148,6 +172,10 @@ def run_hello(root: Path, app: str, args) -> int:
     finally:
         manifest['finished_at'] = datetime.now(timezone.utc).isoformat()
         manifest['duration_seconds'] = round(time.monotonic() - started, 3)
+        report = write_performance(directory, manifest)
+        manifest['performance'] = {'path': str(directory / 'performance.json'),
+                                   'sha256': sha256(directory / 'performance.json'),
+                                   'measurement_status': report['measurement_status']}
         recorder.save()
         print(f'验证记录：{directory / "manifest.json"}', flush=True)
 
@@ -157,6 +185,8 @@ def main(argv: list[str] | None = None, *, root: Path | None = None) -> int:
     parser = argparse.ArgumentParser(prog='300 hello', description='加载本地模型，生成并检查一张图片或一句配音；不安装依赖或下载模型。')
     parser.add_argument('targets', nargs='+', type=app_name, metavar='Ideogram4|Indextts2')
     parser.add_argument('--timeout', type=positive_int, default=900, help='每个应用的总预算秒数，默认 900。')
+    parser.add_argument('--sample-interval', type=sample_interval, default=2.0,
+                        help='生成进程资源采样和控制台输出间隔，默认 2 秒，范围 0.2–60。')
     parser.add_argument('--reference', type=Path, help='IndexTTS2 参考人声 WAV，默认使用内置上游演示样本。')
     parser.add_argument('--models-dir', type=Path)
     parser.add_argument('--model-dir', type=Path)

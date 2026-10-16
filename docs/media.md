@@ -119,6 +119,42 @@ uv run 300 hello Indextts2 --model-dir /another/IndexTTS-2
 
 每次运行使用新的 `artifacts/hello/300/<run-id>/`，保存输入配置、参考音频快照、生成结果、验证指标和逐步骤日志；终端显示进度、超时与最终输出路径。成功退出码为 0，失败为 2，超时为 124，中断为 130。只有实际生成和输出校验都通过才记录 `status=passed` 与 `gpu_inference_validated=true`；此结果代表小样本推理链路可用，不代表全面画质或语音质量评测。
 
+### 生成过程的资源与性能记录
+
+两条命令默认每 2 秒采样并打印一行资源数据，显示阶段、已用时间、任务进程树 CPU、整机 CPU、进程 RSS、系统已用内存、GPU 利用率、VRAM/GTT、温度和 SoC 功耗。已有 prepared 环境直接可用，无需为监控重新 init；每次运行会保存测量代码快照，调用原有冻结 worker。
+
+```sh
+uv run 300 hello Ideogram4 --sample-interval 1
+uv run 300 hello Indextts2 --sample-interval 1
+```
+
+`--sample-interval` 范围为 0.2–60 秒。进程 CPU 的 100% 表示占满一个逻辑核心，因此多线程可超过 100%；整机 CPU 为 0–100%。每个有效指标在结束时统计采样数量、最小值、最大值和算术平均值，JSON 还按运行时检查、模型加载和生成阶段分组。不可读的指标保留为 `null` 并附原因，不能解读为 0；监控错误不会替换原始推理退出码。
+
+AI 300 的 RSS、VRAM、GTT 和 PyTorch allocated/reserved 含义不同、存在重叠，不能相加。sysfs GPU 利用率和内存读数覆盖整张卡，可能包含其他进程；APU 的 `power1_average/input` 包含 CPU，故标为 **SoC 功耗**。依据：[Linux AMDGPU 监控接口](https://docs.kernel.org/gpu/amdgpu/thermal.html)。采样最大值可能遗漏两次采样之间的短峰值；PyTorch allocator 的阶段峰值另行记录。
+
+结束时除了资源汇总，还会打印以下性能数据：
+
+| 项目 | 定义 |
+| --- | --- |
+| 总耗时 | 从 hello 开始到输出校验结束，包含等待锁和前置检查 |
+| 生成进程耗时 | 子进程启动、运行时检查、import、模型加载、生成、保存和退出 |
+| 模型加载耗时 | 模型构造/读取权重阶段，GPU 同步后计时 |
+| 图片生成 | 文本编码、12 步去噪和解码的完整 pipeline 时间；秒/张、张/秒、百万像素/秒；PNG 保存不在此阶段内 |
+| 配音生成 | `IndexTTS2.infer` 时间，含 WAV 保存；输出音频秒数、RTF、倍实时速度、字符/秒 |
+| RTF | 实际生成秒数 ÷ 音频秒数，越小越快；小于 1 表示快于实时 |
+| 倍实时速度 | 音频秒数 ÷ 实际生成秒数，RTF 的倒数 |
+
+端到端图片耗时、音频 RTF 另外使用 hello 总耗时计算，避免把模型加载混入纯生成指标。资源的 min/max/mean 来自本次时间序列；单次 hello 不会伪造多轮生成耗时的分布或 p95/p99。
+
+输出目录中新增四份记录：
+
+- `performance.json`：统一入口，包含任务状态、阶段时间、应用性能指标、资源汇总及口径说明。
+- `resources.json`：完整采样序列、总体和分阶段 min/max/mean、数据来源及限制。
+- `resources.jsonl`：逐次采样实时追加，便于观察或读取中断前的数据。
+- `runtime-performance.json`：模型加载/生成的同步时间、PyTorch 内存和各阶段 allocator 峰值。
+
+失败、超时或 Ctrl+C 后仍保留已采到的数据；未完成阶段不计算吞吐率，`measurement_status=partial` 表示记录不完整。采样、GPU 同步和日志会引入少量测量开销，结果用于本机这次小样本的观测。
+
 ## 启动本地 WebUI
 
 在运行环境和模型分别准备完成后执行：
@@ -167,6 +203,15 @@ uv run 300 Indextts2 --prompt "你好，这是配音测试。" --reference refer
 
 对应独立环境分别为 `artifacts/init/300/20261015T234635Z-ideogram4-s46lqg0u` 与 `artifacts/init/300/20261015T090934Z-indextts2-avevuadc`。前者已采用 Transformers 5.8.0 修复；旧环境 4.57.6 的失败证据保留在 `artifacts/hello/300/20261015T234031Z-ideogram4-25ogj67i`。没有修改模型配置或旧环境来绕过校验。
 
-工具测试共 183 项通过，执行命令为 `uv run --offline python -m unittest discover -s tests -v`，完整输出见 `artifacts/media-hello-tests.log`；`doctor` 也完成。这些检查覆盖路由、输入身份、缺失环境/模型、失败/超时/中断、串行锁与输出验证。已理解并验证小样本 GPU 推理链路可用；语音未做人工听辨，较大分辨率、长文本及稳定性仍未评测。下一步可打开生成文件确认主观质量，再使用自己的提示词或参考音频复测。
+加入资源采样后，2026-10-16 本机串行复测也通过，复用相同 prepared 环境与本地模型：
+
+| 应用 | 模型加载 | 实际生成 | hello 总耗时 | 资源采样 | 性能记录 |
+| --- | --- | --- | --- | --- | --- |
+| Ideogram4 | 112.805 s | 21.230 s | 138.751 s | 70 次 | [performance.json](../artifacts/hello/300/20261016T005010Z-ideogram4-vw3lns85/performance.json) |
+| IndexTTS2 | 22.358 s | 37.546 s | 69.425 s | 35 次 | [performance.json](../artifacts/hello/300/20261016T005229Z-indextts2-m9ilegqt/performance.json) |
+
+此次图片生成速率约 0.0471 张/s；音频时长 3.193 s，生成 RTF 为 11.760（约 0.085 倍实时速度），端到端 RTF 为 21.745。采样进程 RSS 峰值分别为 35.33 / 7.26 GiB；整卡 GPU 利用率采样均值为 19.67% / 49.26%，两者最大值均为 100%。这些整程均值包含加载等阶段，生成阶段的独立统计在 `resources.by_phase.generation` 中。整卡读数包含已有显存/GTT占用；不将本次最大值解读为任务独占消耗。
+
+已逐项核对 JSONL 与 JSON samples 一致、采样数一致、汇总 min/max/mean 可由原始数据重算，两个采样器的错误列表均为空。工具测试共 229 项通过，执行命令为 `uv run --offline python -m unittest discover -s tests -v`，完整输出见 `artifacts/media-telemetry-tests.log`；`doctor` 也完成。这些检查覆盖路由、输入身份、缺失环境/模型、失败/超时/中断、串行锁、输出验证、计时/RTF 公式、GPU 映射、资源统计与监控异常隔离。已理解并验证小样本 GPU 推理链路和测量流程可用；语音未做人工听辨，较大分辨率、长文本及多轮稳定性仍未评测。下一步可打开生成文件确认主观质量，再使用自己的提示词或参考音频复测。
 
 来源：[Ideogram4 固定源码](https://github.com/ideogram-oss/ideogram4/tree/990fe1c4e950bb9e9dc90e01c0ad98ba434f83c2)、[IndexTTS2 v2.0.0](https://github.com/index-tts/index-tts/tree/830f6f8f94a51fea23ab1d639027a86200075a4e)、[ModelScope snapshot API](https://github.com/modelscope/modelscope/blob/v1.40.2/modelscope/hub/snapshot_download.py)。

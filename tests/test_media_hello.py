@@ -64,7 +64,7 @@ class MediaHelloTests(unittest.TestCase):
         self.events.append(('models', app))
         return {'verified': True, 'app': app, 'directory': str(directory)}
 
-    def command(self, recorder, label, argv, cwd, timeout=None, env=None):
+    def command(self, recorder, label, argv, cwd, timeout=None, env=None, *, observer=None):
         self.assertTrue(self.locked, 'model operations must hold the shared lock')
         self.assertIsInstance(argv, list)
         self.assertEqual(cwd, self.root)
@@ -80,6 +80,16 @@ class MediaHelloTests(unittest.TestCase):
                   'log': label + '.log', 'timeout_seconds': timeout}
         recorder.manifest['commands'].append(record)
         (recorder.directory / record['log']).write_text('fixture subprocess output\n')
+        if label == 'generate':
+            self.assertIsNotNone(observer)
+            record['duration_seconds'] = 15.0
+            record['resource_summary'] = {'sample_count': 5, 'metrics': {}}
+            runtime = {'phases': {phase: {'status': 'succeeded', 'duration_seconds': duration, 'duration_complete': True,
+                       'gpu_synchronized_at_start': True, 'gpu_synchronized_at_end': True}
+                       for phase, duration in [('runtime_check', 1), ('model_load', 10), ('generation', 2)]}}
+            if code:
+                runtime['phases']['generation']['status'] = 'failed'
+            (recorder.directory / 'runtime-performance.json').write_text(json.dumps(runtime))
         if label == 'validate-reference' and code == 0:
             reference = Path(argv[argv.index('--reference') + 1])
             result = {'path': str(reference), 'sha256': hashlib.sha256(reference.read_bytes()).hexdigest(),
@@ -93,7 +103,9 @@ class MediaHelloTests(unittest.TestCase):
             result = self.validation_result
             if result is None:
                 result = {'passed': True, 'app': app, 'output_path': str(artifact),
-                          'sha256': hashlib.sha256(artifact.read_bytes()).hexdigest()}
+                          'sha256': hashlib.sha256(artifact.read_bytes()).hexdigest(),
+                          'width': 256, 'height': 256, 'duration_seconds': 3.2,
+                          'sample_rate': 22050, 'channels': 1}
             Path(argv[argv.index('--result') + 1]).write_text(json.dumps(result))
         return record
 
@@ -216,6 +228,27 @@ class MediaHelloTests(unittest.TestCase):
         copied = self.root / 'artifacts/hello/300' / manifest['run_id'] / 'input/reference.wav'
         self.assertEqual(hashlib.sha256(copied.read_bytes()).hexdigest(), hello.REFERENCE_SHA256)
         self.assertEqual(manifest['preparation_manifest_sha256'], hashlib.sha256(self.preparation_manifest.read_bytes()).hexdigest())
+        performance = json.loads(Path(manifest['performance']['path']).read_text())
+        self.assertEqual(performance['generation']['real_time_factor'], 2 / 3.2)
+        self.assertEqual(performance['resources']['sample_count'], 5)
+        self.assertEqual(performance['measurement_status'], 'complete')
+        self.assertEqual(manifest['performance']['sha256'], hashlib.sha256(Path(manifest['performance']['path']).read_bytes()).hexdigest())
+
+    def test_observer_plan_uses_frozen_worker_and_configurable_sampling(self):
+        code, output, error = self.invoke('Ideogram4', '--dry-run', '--sample-interval', '1')
+        self.assertEqual(code, 0, error)
+        plan = json.loads(output)
+        self.assertEqual(plan['sample_interval_seconds'], 1.0)
+        self.assertEqual(plan['argv'][plan['argv'].index('--worker') + 1], self.runtime['worker'])
+        self.assertEqual(plan['argv'][plan['argv'].index('--') + 1:], plan['worker_argv'][3:])
+        self.assertTrue(plan['argv'][2].endswith('media_hello_runtime.py'))
+
+    def test_invalid_sampling_interval_is_rejected_without_work(self):
+        for interval in ('0', '-1', 'nan', 'inf', '0.01', '61'):
+            with self.subTest(interval=interval), self.assertRaises(SystemExit) as error:
+                self.invoke('Ideogram4', '--sample-interval', interval)
+            self.assertEqual(error.exception.code, 2)
+        self.execute.assert_not_called()
 
     def test_generate_failure_preserves_failure_and_never_validates(self):
         self.failure = ('generate', 'failed', 1)
@@ -251,6 +284,13 @@ class MediaHelloTests(unittest.TestCase):
         code, _, _ = self.invoke('Ideogram4')
         self.assertEqual(code, 2)
         self.assert_failed()
+
+    def test_sigterm_from_wrapper_is_preserved_as_interruption(self):
+        self.failure = ('generate', 'failed', 143)
+        code, _, _ = self.invoke('Ideogram4', 'Indextts2')
+        self.assertEqual(code, 130)
+        self.assertEqual(len(self.manifests()), 1)
+        self.assert_failed('interrupted')
 
     def test_rejected_or_wrong_app_result_never_passes(self):
         for result in ({'passed': False, 'app': 'ideogram4'},

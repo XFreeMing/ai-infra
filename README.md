@@ -89,7 +89,7 @@ uv run 300 Indextts2   # 本地 WebUI 7860
 uv run download Ideogram4 --machine 700
 ```
 
-这两个 init 不下载或加载模型权重；download 使用固定 ModelScope 版本和必要辅助文件，展示进度并校验 SHA256；启动只读取本地模型。命令大小写不敏感。`hello` 使用小样本实际生成并校验输出，验证记录保存在 `artifacts/hello/300/`；详细结果见 [生图/配音说明](docs/media.md#验证状态)。
+这两个 init 不下载或加载模型权重；download 使用固定 ModelScope 版本和必要辅助文件，展示进度并校验 SHA256；启动只读取本地模型。命令大小写不敏感。`hello` 使用小样本实际生成并校验输出，每 2 秒显示 CPU/GPU/内存等资源占用，结束汇总 min/max/mean、加载/生成耗时和吞吐/RTF；可用 `--sample-interval 1` 调整间隔。验证与性能 JSON 保存在 `artifacts/hello/300/`；详细结果见 [生图/配音说明](docs/media.md#验证状态)。
 
 ## 当前研究
 
