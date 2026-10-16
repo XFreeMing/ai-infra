@@ -116,6 +116,39 @@ p tokenizer->vocab[next]
 
 进入 `forward` 后再看局部变量，避免刚到函数入口就读尚未赋值的指针；查看 `logits` 也要停在调用完成后的 753 行，单纯 `finish` 返回可能仍停在赋值尚未结束的 750 行。
 
+## 用数据库查看 token 和初始 embedding
+
+在项目根目录执行，只读取已准备好的固定模型和词表，不会运行或重新编译推理程序：
+
+```sh
+uv run --offline --no-sync python experiments/tiny-inference/export_embeddings.py
+```
+
+输出为 `artifacts/tiny-inference/token-embeddings.sqlite3`。已存在时保留原文件，可用 `--output artifacts/tiny-inference/token-embeddings-2.sqlite3` 另存。数据库是本机学习产物，不提交 Git；脚本、示例查询随父仓库版本管理。
+
+用 SQLite 数据库工具打开该文件：
+
+- `tokens` 表：32,000 行，每行一个 token。`token_id` 是编号，`token_text` 是词表原文，`token_text_escaped` 用 JSON 引号及转义符显示前导空格、换行；`embedding_000` 到 `embedding_287` 是 288 个初始 embedding 数值。
+- `once_embedding` 视图：只展示 `9038`，纵向 288 行。`dim_index = 0` 对应数组第一个元素，`value` 是该元素的值，便于逐行观察。
+- `embedding_values` 视图：对其他 token 使用相同的纵向布局。按 `token_id` 筛选即可，无需实际存储第二份权重。
+- `metadata` 表：模型配置、SHA256、来源 commit、脚本哈希、环境与导出记录。`tokenizer_score` 是词表分词用的分数，不是生成概率。
+
+[inspect_embeddings.sql](inspect_embeddings.sql) 包含可直接执行的查询。例如：
+
+```sql
+SELECT token_id, token_text_escaped FROM tokens WHERE token_id IN (938, 9038);
+SELECT * FROM once_embedding;
+SELECT dim_index, value FROM embedding_values WHERE token_id = 2501 ORDER BY dim_index;
+```
+
+`9038` 的词表原文是 `" Once"`，包含一个前导空格；`938` 是 `" int"`。`decode` 在 BOS 后会移除一个前导空格，所以第一次打印看到的是 `Once`。某些 token 是词的一部分，某些是特殊标记或 `<0xXX>` 字节，不保证每个 token 都能单独显示成完整文字；导出保留原文与字节十六进制，不做有损替换。
+
+这些数来自模型中的 **`token_embedding_table` 固定初始权重**，不是依赖上下文计算的隐藏状态，也不是 Q、K、V。在 `forward` 的 `memcpy` 执行后、第一层计算前，`s->x[i]` 应等于数据库里当前 token 的 `embedding_i`。执行 RMSNorm 或后续层以后，再用该固定表对比运行状态就没有同样含义。
+
+解析依据是固定提交 [`350e04fe35433e6d2941dce5a1f53308f87058eb` 的 run.c](https://github.com/karpathy/llama2.c/blob/350e04fe35433e6d2941dce5a1f53308f87058eb/run.c)：`Config`、`read_checkpoint`、`memory_map_weights`、`build_tokenizer`、`decode` 与 `forward`。模型头为 7 个小端 int32，随后第一块权重就是按 token ID 顺序存放的 FP32 embedding。导出精确读取 FP32 并存为 SQLite REAL，不人为舍入；此脚本只针对 lock 固定的旧版 `.bin`，不解析 GGUF。
+
+本节理解目标：能把 token ID、词表文本和初始数值数组对应起来。尚未解释：这些数如何在训练中学到、如何变成 Q/K/V。下一步在 `forward` 的 embedding 拷贝后，对比 `9038` 的前三个 `s->x` 数值与数据库。
+
 ## 与 ds4 学习连接
 
 llama2.c 在同一个循环中逐个处理输入和输出，没有 ds4 那样独立的批量 prefill API。两者都需要先处理上下文，再不断计算候选分数并选出后续 token；调用形态和性能路径不同。
